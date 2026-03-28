@@ -209,13 +209,80 @@ def _build_heatmap_temporal(assets, region_key: str, years=None):
     return time_series
 
 
-def render_temporal_map(region_key: str, region_data: dict, layers: dict,
-                        map_key: str = "temporal_map"):
-    """Render temporal risk map with play/pause animation and slider."""
-    import time as _time
+def _build_frame_html(center, zoom, assets, mult, label, _inject_js_guards):
+    """Build folium map HTML string for a single temporal frame."""
     import folium
     from folium.plugins import HeatMap
-    from streamlit_folium import st_folium
+
+    m = folium.Map(location=center, zoom_start=zoom, tiles=None,
+                   control_scale=False)
+
+    _inject_js_guards(m)
+
+    m.get_root().html.add_child(folium.Element(
+        "<style>.leaflet-control-attribution{display:none !important;}</style>"
+    ))
+
+    folium.TileLayer(
+        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        attr=" ", name="Dark",
+    ).add_to(m)
+
+    heat_data = []
+    for lat, lon, name, atype, base_score in assets:
+        risk = min(1.0, base_score * mult / 0.7)
+        if risk > 0.05:
+            heat_data.append([lat, lon, risk])
+
+    if heat_data:
+        HeatMap(
+            heat_data,
+            name=f"Risk Heatmap — {label}",
+            min_opacity=0.2,
+            radius=25,
+            blur=15,
+            gradient={
+                "0.2": "#0ea5e9", "0.4": "#22c55e",
+                "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444",
+            },
+        ).add_to(m)
+
+    for lat, lon, name, atype, base_score in assets:
+        risk = min(1.0, base_score * mult / 0.7)
+        color = "#ef4444" if risk >= 0.7 else "#f59e0b" if risk >= 0.5 else "#eab308" if risk >= 0.3 else "#22c55e"
+        radius = max(4, min(14, risk * 18))
+
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=radius,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.7,
+            weight=1.5,
+            tooltip=f"{name} ({atype}) — Risk: {risk:.2f}",
+        ).add_to(m)
+
+    folium.LayerControl(collapsed=True).add_to(m)
+    return m._repr_html_()
+
+
+def _risk_badge(mult):
+    """Return (level_text, color) for a risk multiplier."""
+    if mult >= 0.7:
+        return "CRITICAL", "#ef4444"
+    if mult >= 0.5:
+        return "HIGH", "#f59e0b"
+    if mult >= 0.3:
+        return "MODERATE", "#eab308"
+    return "LOW", "#22c55e"
+
+
+def render_temporal_map(region_key: str, region_data: dict, layers: dict,
+                        map_key: str = "temporal_map"):
+    """Render temporal risk map with play/pause animation — no st.rerun()."""
+    import time as _time
+    import streamlit.components.v1 as components
     from dashboard.data.loader import get_regional_assets
     from dashboard.components.map_view import _get_map_imports, _inject_js_guards
 
@@ -242,26 +309,17 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
 
     n_frames = len(time_labels)
 
-    # Session state keys for this map's animation
+    # Session state
     play_key = f"temporal_playing_{map_key}"
     speed_key = f"temporal_speed_{map_key}"
     slider_key = f"temporal_slider_{map_key}"
 
     if play_key not in st.session_state:
         st.session_state[play_key] = False
-
-    # Auto-advance BEFORE widgets: if playing, bump slider index now
-    # (must happen before select_slider is instantiated)
-    if st.session_state.get(play_key, False):
-        cur = st.session_state.get(slider_key, 0)
-        nxt = cur + 1 if cur + 1 < n_frames else 0
-        st.session_state[slider_key] = nxt
-
-    # Initialize slider default on very first render (Jan 2024 = index 0)
     if slider_key not in st.session_state:
         st.session_state[slider_key] = 0
 
-    # ── Playback controls row ─────────────────────────────────
+    # ── Playback controls ─────────────────────────────────────
     def _toggle_play():
         st.session_state[play_key] = not st.session_state[play_key]
 
@@ -289,102 +347,87 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
             label_visibility="collapsed",
         )
 
-    # Slider to select month
-    slider_idx = st.select_slider(
-        "Timeline",
-        options=list(range(n_frames)),
-        format_func=lambda i: time_labels[i],
-        key=slider_key,
-    )
+    # ── Placeholders for badge + map ──────────────────────────
+    badge_ph = st.empty()
+    map_ph = st.empty()
 
-    ts_key = time_keys[slider_idx]
-    mult = multipliers.get(ts_key, 0.1)
-    label = time_labels[slider_idx]
+    is_playing = st.session_state.get(play_key, False)
 
-    # Risk level indicator
-    if mult >= 0.7:
-        level, level_color = "CRITICAL", "#ef4444"
-    elif mult >= 0.5:
-        level, level_color = "HIGH", "#f59e0b"
-    elif mult >= 0.3:
-        level, level_color = "MODERATE", "#eab308"
+    if not is_playing:
+        # ── Static mode: show slider, render single frame ─────
+        slider_idx = st.select_slider(
+            "Timeline",
+            options=list(range(n_frames)),
+            format_func=lambda i: time_labels[i],
+            key=slider_key,
+        )
+
+        ts_key = time_keys[slider_idx]
+        mult = multipliers.get(ts_key, 0.1)
+        label = time_labels[slider_idx]
+        level, level_color = _risk_badge(mult)
+
+        badge_ph.markdown(
+            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+            f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">{label}</span>'
+            f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
+            f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
+            f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
+            f'{level} ({mult:.0%})</span></div>',
+            unsafe_allow_html=True,
+        )
+
+        html = _build_frame_html(center, zoom, assets, mult, label,
+                                 _inject_js_guards)
+        with map_ph:
+            components.html(html, height=420, scrolling=False)
+
     else:
-        level, level_color = "LOW", "#22c55e"
+        # ── Playback loop: iterate frames inside placeholders ─
+        # Hide slider during playback — it can't be updated from a loop
+        st.markdown(
+            f'<div style="color:#5a8ab0;font-size:11px;margin-bottom:4px;">'
+            f'Playing… press <b>Pause</b> to stop and use the slider.</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
-        f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">{label}</span>'
-        f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
-        f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
-        f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
-        f'{level} ({mult:.0%})</span></div>',
-        unsafe_allow_html=True,
-    )
-
-    # Build map for this time step
-    m = folium.Map(location=center, zoom_start=zoom, tiles=None,
-                   control_scale=False)
-
-    _inject_js_guards(m)
-
-    m.get_root().html.add_child(folium.Element(
-        "<style>.leaflet-control-attribution{display:none !important;}</style>"
-    ))
-
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        attr=" ", name="Dark",
-    ).add_to(m)
-
-    # Heatmap for this month
-    heat_data = []
-    for lat, lon, name, atype, base_score in assets:
-        risk = min(1.0, base_score * mult / 0.7)
-        if risk > 0.05:
-            heat_data.append([lat, lon, risk])
-
-    if heat_data:
-        HeatMap(
-            heat_data,
-            name=f"Risk Heatmap — {label}",
-            min_opacity=0.2,
-            radius=25,
-            blur=15,
-            gradient={
-                "0.2": "#0ea5e9", "0.4": "#22c55e",
-                "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444",
-            },
-        ).add_to(m)
-
-    # Asset markers scaled by temporal risk
-    for lat, lon, name, atype, base_score in assets:
-        risk = min(1.0, base_score * mult / 0.7)
-        color = "#ef4444" if risk >= 0.7 else "#f59e0b" if risk >= 0.5 else "#eab308" if risk >= 0.3 else "#22c55e"
-        radius = max(4, min(14, risk * 18))
-
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=radius,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.7,
-            weight=1.5,
-            tooltip=f"{name} ({atype}) — Risk: {risk:.2f}",
-        ).add_to(m)
-
-    folium.LayerControl(collapsed=True).add_to(m)
-
-    st_folium(m, width="100%", height=420, key=f"{map_key}_{slider_idx}",
-              returned_objects=[])
-
-    # ── Schedule next frame if playing ────────────────────────
-    if st.session_state.get(play_key, False):
         spd = st.session_state.get(speed_key, 1.0)
         if not isinstance(spd, (int, float)):
             spd = 1.0
-        delay = max(0.15, 1.0 / spd)
-        _time.sleep(delay)
+        delay = max(0.3, 1.2 / spd)
+
+        start_idx = st.session_state.get(slider_key, 0)
+
+        for i in range(n_frames):
+            # Check if user paused (via another session — won't update mid-loop,
+            # but we limit the loop to one full cycle then stop)
+            idx = (start_idx + i) % n_frames
+            ts_key = time_keys[idx]
+            mult = multipliers.get(ts_key, 0.1)
+            label = time_labels[idx]
+            level, level_color = _risk_badge(mult)
+
+            badge_ph.markdown(
+                f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+                f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">'
+                f'{label}  [{idx+1}/{n_frames}]</span>'
+                f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
+                f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
+                f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
+                f'{level} ({mult:.0%})</span></div>',
+                unsafe_allow_html=True,
+            )
+
+            html = _build_frame_html(center, zoom, assets, mult, label,
+                                     _inject_js_guards)
+            with map_ph:
+                components.html(html, height=420, scrolling=False)
+
+            _time.sleep(delay)
+
+        # After one full cycle, stop playing and park slider at last frame
+        st.session_state[play_key] = False
+        st.session_state[slider_key] = (start_idx + n_frames - 1) % n_frames
         st.rerun()
 
 
