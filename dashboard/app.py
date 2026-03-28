@@ -18,6 +18,7 @@ from dashboard.components.map_view import render_map, render_region_map
 from dashboard.components.sidebar import render_sidebar, render_analytics_overlay
 from dashboard.components.cofactors import render_flood_cofactors, render_landslide_cofactors
 from dashboard.components.detail_panel import inject_panel_css, render_detail_panel
+from dashboard.components.temporal_map import render_temporal_map, render_temporal_chart
 from dashboard.components.risk_panels import (
     render_alert_banner,
     render_metric_row,
@@ -846,6 +847,31 @@ def _render_flood_tab(layers):
     # Cofactors
     render_flood_cofactors(flood_region)
 
+    # ── Temporal Risk Animation ───────────────────────────────────
+    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<span style='color:#00d4ff;font-size:11px;font-weight:700;"
+        "letter-spacing:0.1em;'>TEMPORAL RISK ANIMATION — 2024/2025</span>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<span style='color:#5a8ab0;font-size:10px;'>"
+        "Monthly risk evolution based on BMD/BWDB/ReliefWeb event data. "
+        "Use the timeline slider or press play.</span>",
+        unsafe_allow_html=True,
+    )
+
+    anim_col, chart_col2 = st.columns([3, 2], gap="medium")
+
+    with anim_col:
+        render_temporal_map(
+            flood_region, region_data, layers,
+            map_key=f"temporal_flood_{flood_region}",
+        )
+
+    with chart_col2:
+        render_temporal_chart(flood_region)
+
 
 # ---------------------------------------------------------------------------
 # Landslide Risk tab
@@ -930,6 +956,31 @@ def _render_landslide_tab(layers):
 
     # Cofactors pane
     render_landslide_cofactors()
+
+    # ── Temporal Risk Animation ───────────────────────────────────
+    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<span style='color:#de3c78;font-size:11px;font-weight:700;"
+        "letter-spacing:0.1em;'>TEMPORAL LANDSLIDE RISK — 2024/2025</span>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<span style='color:#5a8ab0;font-size:10px;'>"
+        "Monthly susceptibility evolution. 773 landslides recorded Jun 18-19, 2024. "
+        "Use the timeline slider or press play.</span>",
+        unsafe_allow_html=True,
+    )
+
+    anim_col_ls, chart_col_ls = st.columns([3, 2], gap="medium")
+
+    with anim_col_ls:
+        render_temporal_map(
+            "CHT Landslide", LANDSLIDE_DATA, layers,
+            map_key="temporal_landslide",
+        )
+
+    with chart_col_ls:
+        render_temporal_chart("CHT Landslide")
 
 
 # ---------------------------------------------------------------------------
