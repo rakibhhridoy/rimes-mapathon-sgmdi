@@ -634,7 +634,6 @@ def _render_skeleton():
 # ---------------------------------------------------------------------------
 # Pipeline Data tab (your existing functionality)
 # ---------------------------------------------------------------------------
-@st.fragment
 def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dark, layers):
     """Pipeline data tab with KPIs, map, analytics, and asset/union/export sub-tabs."""
     import pandas as pd
@@ -722,7 +721,6 @@ def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dar
 # ---------------------------------------------------------------------------
 # Flood Risk tab (Fermium-HazMapper regional)
 # ---------------------------------------------------------------------------
-@st.fragment
 def _render_flood_tab(layers):
     """Multi-region flood risk tab from Fermium-HazMapper."""
 
@@ -823,7 +821,6 @@ def _render_flood_tab(layers):
 # ---------------------------------------------------------------------------
 # Landslide Risk tab
 # ---------------------------------------------------------------------------
-@st.fragment
 def _render_landslide_tab(layers):
     """Landslide risk tab from Fermium-HazMapper."""
 
