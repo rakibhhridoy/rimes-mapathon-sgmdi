@@ -18,6 +18,40 @@ def _get_map_imports():
     import folium
     from folium.plugins import MarkerCluster, HeatMap
     from streamlit_folium import st_folium
+
+    # Fix LayerControl template: replace 'let' with 'var' at the class level.
+    # Folium uses 'let' which causes SyntaxError when st_folium re-evaluates
+    # the script on Streamlit reruns (let can't be re-declared in same scope).
+    if not getattr(folium.LayerControl, '_template_patched', False):
+        from folium.template import Template
+        folium.LayerControl._template = Template("""
+        {% macro script(this,kwargs) %}
+            var {{ this.get_name() }}_layers = {
+                base_layers : {
+                    {%- for key, val in this.base_layers.items() %}
+                    {{ key|tojson }} : {{val}},
+                    {%- endfor %}
+                },
+                overlays :  {
+                    {%- for key, val in this.overlays.items() %}
+                    {{ key|tojson }} : {{val}},
+                    {%- endfor %}
+                },
+            };
+            var {{ this.get_name() }} = L.control.layers(
+                {{ this.get_name() }}_layers.base_layers,
+                {{ this.get_name() }}_layers.overlays,
+                {{ this.options|tojavascript }}
+            ).addTo({{this._parent.get_name()}});
+
+            {%- if this.draggable %}
+            new L.Draggable({{ this.get_name() }}.getContainer()).enable();
+            {%- endif %}
+
+        {% endmacro %}
+        """)
+        folium.LayerControl._template_patched = True
+
     return folium, MarkerCluster, HeatMap, st_folium
 
 
