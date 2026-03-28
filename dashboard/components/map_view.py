@@ -13,52 +13,50 @@ import re
 import streamlit as st
 
 
-# ---------------------------------------------------------------------------
-# Monkey-patch streamlit_folium's JS generation to fix runtime errors.
-# This patches the OUTPUT string rather than folium templates, so it works
-# regardless of how st_folium internally extracts JS.
-# ---------------------------------------------------------------------------
-_HEAT_GUARD = (
-    '(function(){if(typeof L!=="undefined"&&L.HeatLayer){'
-    'var _od=L.HeatLayer.prototype._draw;'
-    'L.HeatLayer.prototype._draw=function(){'
-    'if(this._canvas&&this._canvas.width>0)_od.call(this);};'
-    '}})();\n'
-)
-
-def _install_js_patches():
-    """Monkey-patch streamlit_folium.generate_leaflet_string once."""
-    import streamlit_folium as sf
-
-    if getattr(sf, '_js_patched', False):
-        return
-    sf._js_patched = True
-
-    _orig = sf.generate_leaflet_string
-
-    def _patched_generate(m, nested=True, base_id="div"):
-        js = _orig(m, nested=nested, base_id=base_id)
-        # Fix LayerControl: let -> var (prevents SyntaxError on re-render)
-        js = re.sub(r'\blet\s+(layer_control_)', r'var \1', js)
-        # Prepend HeatMap canvas guard (prevents getImageData on 0-width canvas)
-        if 'L.heatLayer' in js or 'heat' in js.lower():
-            js = _HEAT_GUARD + js
-        return js
-
-    sf.generate_leaflet_string = _patched_generate
-    # Also patch the reference inside _get_map_string and _get_layer_control_string
-    sf._get_map_string.__globals__['generate_leaflet_string'] = _patched_generate
-    if hasattr(sf, '_get_layer_control_string'):
-        sf._get_layer_control_string.__globals__['generate_leaflet_string'] = _patched_generate
-
-
 def _get_map_imports():
     """Lazy import folium and related heavy libs."""
     import folium
     from folium.plugins import MarkerCluster, HeatMap
     from streamlit_folium import st_folium
-    _install_js_patches()
     return folium, MarkerCluster, HeatMap, st_folium
+
+
+# JS guard injected directly into folium HTML — runs in the iframe before
+# any map code, so it works regardless of Python-side patching.
+_BROWSER_JS_GUARD = """
+<script>
+(function(){
+    // Guard HeatMap: prevent getImageData on 0-width canvas
+    if(typeof L!=="undefined"&&L.HeatLayer){
+        var _origDraw=L.HeatLayer.prototype._draw;
+        L.HeatLayer.prototype._draw=function(){
+            if(this._canvas&&this._canvas.width>0&&this._canvas.height>0){
+                _origDraw.call(this);
+            }
+        };
+    }
+    // Guard Map: prevent "already initialized" error
+    if(typeof L!=="undefined"&&L.Map){
+        var _origInit=L.Map.prototype.initialize;
+        L.Map.prototype.initialize=function(id,options){
+            var container=typeof id==='string'?document.getElementById(id):id;
+            if(container&&container._leaflet_id){
+                container._leaflet_id=null;
+                container.innerHTML='';
+            }
+            return _origInit.call(this,id,options);
+        };
+    }
+})();
+</script>
+"""
+
+
+def _inject_js_guards(m):
+    """Inject browser-side JS guards into the folium map HTML."""
+    import folium
+    m.get_root().html.add_child(folium.Element(_BROWSER_JS_GUARD))
+    return m
 
 
 from dashboard.data.loader import (
@@ -311,6 +309,8 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
 
     m = folium.Map(location=center, zoom_start=zoom, tiles=None,
                    control_scale=False)
+
+    _inject_js_guards(m)
 
     # Hide Leaflet attribution watermark
     m.get_root().html.add_child(folium.Element(
@@ -589,6 +589,8 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
         tiles=None,
         control_scale=False,
     )
+
+    _inject_js_guards(m)
 
     # Hide Leaflet attribution watermark
     m.get_root().html.add_child(folium.Element(
