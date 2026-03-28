@@ -1,0 +1,17 @@
+[Unit]
+Description=Fermium HazMapper - Multi-Hazard Geospatial Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=webuser
+Group=webuser
+WorkingDirectory=/var/www/hazmapper
+ExecStart=/usr/bin/streamlit run dashboard/app.py --server.port 2020 --server.address 0.0.0.0 --server.headless true --server.baseUrlPath hazmapper -- --config config.yaml
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/var/www/hazmapper
+
+[Install]
+WantedBy=multi-user.target

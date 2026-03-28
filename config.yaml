@@ -112,7 +112,7 @@ landslide:
   output_dir: "data/output"
 
 dashboard:
-  port: 8501
+  port: 2020
   map_zoom: 8
   map_center: [25.5, 89.0]                 # Approx center of study area
   export_formats: ["csv", "geotiff", "geojson", "pdf"]
