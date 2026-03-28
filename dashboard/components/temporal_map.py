@@ -249,39 +249,45 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
 
     if play_key not in st.session_state:
         st.session_state[play_key] = False
-    # speed_key is owned by the selectbox widget — no pre-init needed
+
+    # Auto-advance BEFORE widgets: if playing, bump slider index now
+    # (must happen before select_slider is instantiated)
+    if st.session_state.get(play_key, False):
+        cur = st.session_state.get(slider_key, 0)
+        nxt = cur + 1 if cur + 1 < n_frames else 0
+        st.session_state[slider_key] = nxt
+
+    # Initialize slider default on very first render (Jan 2024 = index 0)
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = 0
 
     # ── Playback controls row ─────────────────────────────────
+    def _toggle_play():
+        st.session_state[play_key] = not st.session_state[play_key]
+
+    def _reset():
+        st.session_state[play_key] = False
+        st.session_state[slider_key] = 0
+
     ctrl_cols = st.columns([1, 1, 1, 4])
 
     with ctrl_cols[0]:
-        if st.session_state[play_key]:
-            if st.button("⏸ Pause", key=f"pause_{map_key}", use_container_width=True):
-                st.session_state[play_key] = False
-                st.rerun()
-        else:
-            if st.button("▶ Play", key=f"play_{map_key}", use_container_width=True):
-                st.session_state[play_key] = True
-                st.rerun()
+        btn_label = "⏸ Pause" if st.session_state[play_key] else "▶ Play"
+        st.button(btn_label, key=f"playpause_{map_key}",
+                  on_click=_toggle_play, use_container_width=True)
 
     with ctrl_cols[1]:
-        if st.button("⏮ Reset", key=f"reset_{map_key}", use_container_width=True):
-            st.session_state[play_key] = False
-            st.session_state[slider_key] = 0
-            st.rerun()
+        st.button("⏮ Reset", key=f"reset_{map_key}",
+                  on_click=_reset, use_container_width=True)
 
     with ctrl_cols[2]:
-        speed = st.selectbox(
+        st.selectbox(
             "Speed", [0.5, 1.0, 2.0, 3.0],
             index=1,
             format_func=lambda x: f"{x}×",
             key=speed_key,
             label_visibility="collapsed",
         )
-
-    # Initialize slider default on first render
-    if slider_key not in st.session_state:
-        st.session_state[slider_key] = 5
 
     # Slider to select month
     slider_idx = st.select_slider(
@@ -372,17 +378,13 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
     st_folium(m, width="100%", height=420, key=f"{map_key}_{slider_idx}",
               returned_objects=[])
 
-    # ── Auto-advance when playing ─────────────────────────────
+    # ── Schedule next frame if playing ────────────────────────
     if st.session_state.get(play_key, False):
         spd = st.session_state.get(speed_key, 1.0)
         if not isinstance(spd, (int, float)):
             spd = 1.0
         delay = max(0.15, 1.0 / spd)
         _time.sleep(delay)
-        next_idx = slider_idx + 1
-        if next_idx >= n_frames:
-            next_idx = 0  # loop back to start
-        st.session_state[slider_key] = next_idx
         st.rerun()
 
 
