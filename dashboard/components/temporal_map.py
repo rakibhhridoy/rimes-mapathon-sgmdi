@@ -209,82 +209,17 @@ def _build_heatmap_temporal(assets, region_key: str, years=None):
     return time_series
 
 
-def _build_frame_html(center, zoom, assets, mult, label, _inject_js_guards):
-    """Build folium map HTML string for a single temporal frame."""
-    import folium
-    from folium.plugins import HeatMap
-
-    m = folium.Map(location=center, zoom_start=zoom, tiles=None,
-                   control_scale=False)
-
-    _inject_js_guards(m)
-
-    m.get_root().html.add_child(folium.Element(
-        "<style>.leaflet-control-attribution{display:none !important;}</style>"
-    ))
-
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        attr=" ", name="Dark",
-    ).add_to(m)
-
-    heat_data = []
-    for lat, lon, name, atype, base_score in assets:
-        risk = min(1.0, base_score * mult / 0.7)
-        if risk > 0.05:
-            heat_data.append([lat, lon, risk])
-
-    if heat_data:
-        HeatMap(
-            heat_data,
-            name=f"Risk Heatmap — {label}",
-            min_opacity=0.2,
-            radius=25,
-            blur=15,
-            gradient={
-                "0.2": "#0ea5e9", "0.4": "#22c55e",
-                "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444",
-            },
-        ).add_to(m)
-
-    for lat, lon, name, atype, base_score in assets:
-        risk = min(1.0, base_score * mult / 0.7)
-        color = "#ef4444" if risk >= 0.7 else "#f59e0b" if risk >= 0.5 else "#eab308" if risk >= 0.3 else "#22c55e"
-        radius = max(4, min(14, risk * 18))
-
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=radius,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.7,
-            weight=1.5,
-            tooltip=f"{name} ({atype}) — Risk: {risk:.2f}",
-        ).add_to(m)
-
-    folium.LayerControl(collapsed=True).add_to(m)
-    return m._repr_html_()
-
-
-def _risk_badge(mult):
-    """Return (level_text, color) for a risk multiplier."""
-    if mult >= 0.7:
-        return "CRITICAL", "#ef4444"
-    if mult >= 0.5:
-        return "HIGH", "#f59e0b"
-    if mult >= 0.3:
-        return "MODERATE", "#eab308"
-    return "LOW", "#22c55e"
-
-
 def render_temporal_map(region_key: str, region_data: dict, layers: dict,
                         map_key: str = "temporal_map"):
-    """Render temporal risk map with play/pause animation — no st.rerun()."""
-    import time as _time
+    """Render temporal risk map with fully client-side JS animation.
+
+    All play/pause/slider/speed logic runs in the browser — zero server
+    round-trips during playback.
+    """
+    import json
     import streamlit.components.v1 as components
     from dashboard.data.loader import get_regional_assets
-    from dashboard.components.map_view import _get_map_imports, _inject_js_guards
+    from dashboard.components.map_view import _get_map_imports
 
     _get_map_imports()
 
@@ -299,7 +234,7 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
     temporal_key = _get_temporal_keys(region_key)
     multipliers = TEMPORAL_RISK.get(temporal_key, {})
 
-    # Build time index: 0-23 for Jan 2024 to Dec 2025
+    # Build time index
     time_labels = []
     time_keys = []
     for year in [2024, 2025]:
@@ -307,128 +242,205 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
             time_labels.append(f"{MONTH_LABELS[month_idx-1]} {year}")
             time_keys.append(f"{year}-{month_idx:02d}")
 
-    n_frames = len(time_labels)
+    # Pre-compute multipliers per frame
+    mults = [multipliers.get(k, 0.1) for k in time_keys]
 
-    # Session state
-    play_key = f"temporal_playing_{map_key}"
-    speed_key = f"temporal_speed_{map_key}"
-    slider_key = f"temporal_slider_{map_key}"
+    # Serialize asset data for JS
+    assets_js = json.dumps([
+        {"lat": a[0], "lon": a[1], "name": a[2], "type": a[3], "score": a[4]}
+        for a in assets
+    ])
 
-    if play_key not in st.session_state:
-        st.session_state[play_key] = False
-    if slider_key not in st.session_state:
-        st.session_state[slider_key] = 0
+    html = _build_temporal_player_html(
+        center=center,
+        zoom=zoom,
+        assets_json=assets_js,
+        labels_json=json.dumps(time_labels),
+        mults_json=json.dumps(mults),
+        map_id=map_key.replace("-", "_"),
+    )
 
-    # ── Playback controls ─────────────────────────────────────
-    def _toggle_play():
-        st.session_state[play_key] = not st.session_state[play_key]
+    components.html(html, height=530, scrolling=False)
 
-    def _reset():
-        st.session_state[play_key] = False
-        st.session_state[slider_key] = 0
 
-    ctrl_cols = st.columns([1, 1, 1, 4])
+def _build_temporal_player_html(center, zoom, assets_json, labels_json,
+                                 mults_json, map_id):
+    """Build a self-contained HTML page with Leaflet map + JS animation."""
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<style>
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{background:#0a0e14;font-family:Inter,system-ui,sans-serif}}
+  #map{{width:100%;height:400px;border-radius:8px;border:1px solid #1e3a52}}
+  .ctrl-bar{{display:flex;align-items:center;gap:8px;padding:6px 0;margin-bottom:4px}}
+  .ctrl-btn{{background:rgba(13,24,34,0.9);border:1px solid #1e3a52;border-radius:6px;
+    color:#8ab4d4;font-size:11px;font-family:Inter,sans-serif;padding:5px 14px;
+    cursor:pointer;transition:all .2s}}
+  .ctrl-btn:hover{{border-color:#00d4ff;color:#00d4ff}}
+  .ctrl-btn.active{{background:#0d2e3e;border-color:#00d4ff;color:#00d4ff}}
+  .speed-sel{{background:#0a0e14;border:1px solid #1e3a52;border-radius:4px;
+    color:#8ab4d4;font-size:11px;padding:4px 6px;font-family:Inter,sans-serif}}
+  .slider-row{{display:flex;align-items:center;gap:10px;padding:4px 0}}
+  .slider-row input[type=range]{{flex:1;accent-color:#00d4ff;height:6px}}
+  .badge{{display:flex;align-items:center;gap:12px;margin-bottom:6px}}
+  .badge-label{{color:#8ab4d4;font-size:12px;font-family:'DM Mono',monospace}}
+  .badge-level{{padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700;
+    font-family:Inter,sans-serif}}
+  .leaflet-control-attribution{{display:none!important}}
+</style>
+</head>
+<body>
+<div class="badge" id="badge_{map_id}"></div>
+<div class="ctrl-bar">
+  <button class="ctrl-btn" id="play_{map_id}">&#9654; Play</button>
+  <button class="ctrl-btn" id="reset_{map_id}">&#9198; Reset</button>
+  <select class="speed-sel" id="speed_{map_id}">
+    <option value="0.5">0.5&times;</option>
+    <option value="1" selected>1&times;</option>
+    <option value="2">2&times;</option>
+    <option value="3">3&times;</option>
+  </select>
+  <span style="color:#5a8ab0;font-size:10px;margin-left:auto" id="counter_{map_id}"></span>
+</div>
+<div class="slider-row">
+  <input type="range" min="0" max="23" value="0" id="slider_{map_id}">
+</div>
+<div id="map" style="margin-top:4px"></div>
 
-    with ctrl_cols[0]:
-        btn_label = "⏸ Pause" if st.session_state[play_key] else "▶ Play"
-        st.button(btn_label, key=f"playpause_{map_key}",
-                  on_click=_toggle_play, use_container_width=True)
+<script>
+(function(){{
+  var ASSETS = {assets_json};
+  var LABELS = {labels_json};
+  var MULTS  = {mults_json};
+  var CENTER = {center};
+  var ZOOM   = {zoom};
+  var MID    = "{map_id}";
+  var N      = LABELS.length;
 
-    with ctrl_cols[1]:
-        st.button("⏮ Reset", key=f"reset_{map_key}",
-                  on_click=_reset, use_container_width=True)
+  // Init map
+  var map = L.map("map",{{attributionControl:false}}).setView(CENTER, ZOOM);
+  L.tileLayer("https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png",
+    {{subdomains:"abcd",maxZoom:19}}).addTo(map);
 
-    with ctrl_cols[2]:
-        st.selectbox(
-            "Speed", [0.5, 1.0, 2.0, 3.0],
-            index=1,
-            format_func=lambda x: f"{x}×",
-            key=speed_key,
-            label_visibility="collapsed",
-        )
+  var heatLayer = null;
+  var markerLayer = L.layerGroup().addTo(map);
 
-    # ── Placeholders for badge + map ──────────────────────────
-    badge_ph = st.empty()
-    map_ph = st.empty()
+  function riskColor(r){{
+    return r>=0.7?"#ef4444":r>=0.5?"#f59e0b":r>=0.3?"#eab308":"#22c55e";
+  }}
+  function riskLevel(m){{
+    if(m>=0.7) return ["CRITICAL","#ef4444"];
+    if(m>=0.5) return ["HIGH","#f59e0b"];
+    if(m>=0.3) return ["MODERATE","#eab308"];
+    return ["LOW","#22c55e"];
+  }}
 
-    is_playing = st.session_state.get(play_key, False)
+  function renderFrame(idx){{
+    var mult = MULTS[idx];
+    var label = LABELS[idx];
+    var rl = riskLevel(mult);
 
-    if not is_playing:
-        # ── Static mode: show slider, render single frame ─────
-        slider_idx = st.select_slider(
-            "Timeline",
-            options=list(range(n_frames)),
-            format_func=lambda i: time_labels[i],
-            key=slider_key,
-        )
+    // Badge
+    document.getElementById("badge_"+MID).innerHTML =
+      '<span class="badge-label">'+label+'</span>'+
+      '<span class="badge-level" style="background:'+rl[1]+'20;color:'+rl[1]+'">'+
+      rl[0]+' ('+(mult*100).toFixed(0)+'%)</span>';
 
-        ts_key = time_keys[slider_idx]
-        mult = multipliers.get(ts_key, 0.1)
-        label = time_labels[slider_idx]
-        level, level_color = _risk_badge(mult)
+    // Counter
+    document.getElementById("counter_"+MID).textContent =
+      (idx+1)+' / '+N;
 
-        badge_ph.markdown(
-            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
-            f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">{label}</span>'
-            f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
-            f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
-            f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
-            f'{level} ({mult:.0%})</span></div>',
-            unsafe_allow_html=True,
-        )
+    // Slider
+    document.getElementById("slider_"+MID).value = idx;
 
-        html = _build_frame_html(center, zoom, assets, mult, label,
-                                 _inject_js_guards)
-        with map_ph:
-            components.html(html, height=420, scrolling=False)
+    // Clear old markers
+    markerLayer.clearLayers();
 
-    else:
-        # ── Playback loop: iterate frames inside placeholders ─
-        # Hide slider during playback — it can't be updated from a loop
-        st.markdown(
-            f'<div style="color:#5a8ab0;font-size:11px;margin-bottom:4px;">'
-            f'Playing… press <b>Pause</b> to stop and use the slider.</div>',
-            unsafe_allow_html=True,
-        )
+    // Build heat + markers
+    var heatPts = [];
+    ASSETS.forEach(function(a){{
+      var risk = Math.min(1.0, a.score * mult / 0.7);
+      if(risk > 0.05) heatPts.push([a.lat, a.lon, risk]);
+      var c = riskColor(risk);
+      var r = Math.max(4, Math.min(14, risk*18));
+      L.circleMarker([a.lat, a.lon], {{
+        radius: r, color: c, fillColor: c, fillOpacity: 0.7,
+        weight: 1.5
+      }}).bindTooltip(a.name+' ('+a.type+') — Risk: '+risk.toFixed(2))
+        .addTo(markerLayer);
+    }});
 
-        spd = st.session_state.get(speed_key, 1.0)
-        if not isinstance(spd, (int, float)):
-            spd = 1.0
-        delay = max(0.3, 1.2 / spd)
+    // Update heat
+    if(heatLayer) map.removeLayer(heatLayer);
+    if(heatPts.length > 0){{
+      heatLayer = L.heatLayer(heatPts, {{
+        radius:25, blur:15, minOpacity:0.2, maxZoom:17,
+        gradient:{{0.2:"#0ea5e9",0.4:"#22c55e",0.6:"#eab308",0.8:"#f59e0b",1.0:"#ef4444"}}
+      }}).addTo(map);
+    }}
+  }}
 
-        start_idx = st.session_state.get(slider_key, 0)
+  // Controls
+  var playing = false;
+  var timer = null;
+  var curIdx = 0;
+  var playBtn = document.getElementById("play_"+MID);
+  var resetBtn = document.getElementById("reset_"+MID);
+  var speedSel = document.getElementById("speed_"+MID);
+  var slider = document.getElementById("slider_"+MID);
 
-        for i in range(n_frames):
-            # Check if user paused (via another session — won't update mid-loop,
-            # but we limit the loop to one full cycle then stop)
-            idx = (start_idx + i) % n_frames
-            ts_key = time_keys[idx]
-            mult = multipliers.get(ts_key, 0.1)
-            label = time_labels[idx]
-            level, level_color = _risk_badge(mult)
+  function getDelay(){{
+    var spd = parseFloat(speedSel.value) || 1;
+    return Math.max(200, 1200 / spd);
+  }}
 
-            badge_ph.markdown(
-                f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
-                f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">'
-                f'{label}  [{idx+1}/{n_frames}]</span>'
-                f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
-                f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
-                f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
-                f'{level} ({mult:.0%})</span></div>',
-                unsafe_allow_html=True,
-            )
+  function startPlay(){{
+    playing = true;
+    playBtn.innerHTML = "&#9208; Pause";
+    playBtn.classList.add("active");
+    step();
+  }}
+  function stopPlay(){{
+    playing = false;
+    clearTimeout(timer);
+    timer = null;
+    playBtn.innerHTML = "&#9654; Play";
+    playBtn.classList.remove("active");
+  }}
+  function step(){{
+    if(!playing) return;
+    curIdx = (curIdx + 1) % N;
+    renderFrame(curIdx);
+    timer = setTimeout(step, getDelay());
+  }}
 
-            html = _build_frame_html(center, zoom, assets, mult, label,
-                                     _inject_js_guards)
-            with map_ph:
-                components.html(html, height=420, scrolling=False)
+  playBtn.addEventListener("click", function(){{
+    if(playing) stopPlay(); else startPlay();
+  }});
+  resetBtn.addEventListener("click", function(){{
+    stopPlay();
+    curIdx = 0;
+    renderFrame(0);
+  }});
+  slider.addEventListener("input", function(){{
+    stopPlay();
+    curIdx = parseInt(this.value);
+    renderFrame(curIdx);
+  }});
 
-            _time.sleep(delay)
-
-        # After one full cycle, stop playing and park slider at last frame
-        st.session_state[play_key] = False
-        st.session_state[slider_key] = (start_idx + n_frames - 1) % n_frames
-        st.rerun()
+  // Initial render
+  renderFrame(0);
+}})();
+</script>
+</body>
+</html>
+"""
 
 
 def render_temporal_chart(region_key: str, chart_key: str = ""):

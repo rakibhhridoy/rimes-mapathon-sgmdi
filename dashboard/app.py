@@ -733,17 +733,13 @@ def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dar
             unsafe_allow_html=True,
         )
 
-        @st.fragment
-        def _pipeline_temporal():
-            from dashboard.data.constants import DATA_SOURCES as _DS
-            _default_region = list(_DS.keys())[0]
-            render_temporal_map(
-                _default_region, _DS[_default_region], layers,
-                map_key="temporal_pipeline",
-            )
-            render_temporal_chart(_default_region, chart_key="pipeline")
-
-        _pipeline_temporal()
+        from dashboard.data.constants import DATA_SOURCES as _DS
+        _default_region = list(_DS.keys())[0]
+        render_temporal_map(
+            _default_region, _DS[_default_region], layers,
+            map_key="temporal_pipeline",
+        )
+        render_temporal_chart(_default_region, chart_key="pipeline")
 
     with overlay_col:
         render_analytics_overlay(filtered, union_gdf, is_dark)
