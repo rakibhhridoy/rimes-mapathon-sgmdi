@@ -739,7 +739,7 @@ def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dar
             _default_region, _DS[_default_region], layers,
             map_key="temporal_pipeline",
         )
-        render_temporal_chart(_default_region)
+        render_temporal_chart(_default_region, chart_key="pipeline")
 
     with overlay_col:
         render_analytics_overlay(filtered, union_gdf, is_dark)
@@ -819,7 +819,7 @@ def _render_flood_tab(layers):
             flood_region, region_data, layers,
             map_key=f"temporal_flood_{flood_region}",
         )
-        render_temporal_chart(flood_region)
+        render_temporal_chart(flood_region, chart_key="flood")
 
     with panel_col:
         flood_assets = get_regional_assets(
@@ -946,7 +946,7 @@ def _render_landslide_tab(layers):
             "CHT Landslide", LANDSLIDE_DATA, layers,
             map_key="temporal_landslide",
         )
-        render_temporal_chart("CHT Landslide")
+        render_temporal_chart("CHT Landslide", chart_key="landslide")
 
     with ls_panel_col:
         ls_assets = get_regional_assets(

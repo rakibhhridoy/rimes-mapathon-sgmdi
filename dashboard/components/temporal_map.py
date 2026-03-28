@@ -327,7 +327,7 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
     st_folium(m, width="100%", height=500, key=map_key, returned_objects=[])
 
 
-def render_temporal_chart(region_key: str):
+def render_temporal_chart(region_key: str, chart_key: str = ""):
     """Render a Plotly line chart of monthly risk for 2024 vs 2025."""
     import plotly.graph_objects as go
 
@@ -381,4 +381,5 @@ def render_temporal_chart(region_key: str):
         ),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    _key = f"temporal_chart_{temporal_key}_{chart_key}" if chart_key else f"temporal_chart_{temporal_key}"
+    st.plotly_chart(fig, use_container_width=True, key=_key)
