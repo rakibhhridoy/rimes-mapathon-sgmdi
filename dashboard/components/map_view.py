@@ -278,7 +278,7 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
     # Base layers
     if is_dark:
         folium.TileLayer(
-            tiles="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+            tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
             attr=" ", name="Dark",
         ).add_to(m)
     else:
