@@ -13,48 +13,43 @@ import re
 import streamlit as st
 
 
-def _patch_folium_html(m):
-    """Patch folium JS templates before st_folium renders them.
+# ---------------------------------------------------------------------------
+# Monkey-patch streamlit_folium's JS generation to fix runtime errors.
+# This patches the OUTPUT string rather than folium templates, so it works
+# regardless of how st_folium internally extracts JS.
+# ---------------------------------------------------------------------------
+_HEAT_GUARD = (
+    '(function(){if(typeof L!=="undefined"&&L.HeatLayer){'
+    'var _od=L.HeatLayer.prototype._draw;'
+    'L.HeatLayer.prototype._draw=function(){'
+    'if(this._canvas&&this._canvas.width>0)_od.call(this);};'
+    '}})();\n'
+)
 
-    st_folium extracts JS via each child's _template.module.script(), so we
-    must patch at that level — patching root.render() has no effect.
-    """
-    heat_guard = (
-        '(function(){if(typeof L!=="undefined"&&L.HeatLayer){'
-        'var _od=L.HeatLayer.prototype._draw;'
-        'L.HeatLayer.prototype._draw=function(){'
-        'if(this._canvas&&this._canvas.width>0)_od.call(this);};'
-        '}})();\n'
-    )
+def _install_js_patches():
+    """Monkey-patch streamlit_folium.generate_leaflet_string once."""
+    import streamlit_folium as sf
 
-    def _patch_children(parent):
-        for child in parent._children.values():
-            # Patch LayerControl: let -> var (Folium _name is "LayerControl", no underscore)
-            if hasattr(child, '_name') and ('layercontrol' in child._name.lower() or 'layer_control' in child._name.lower()):
-                orig = child._template.module.script
+    if getattr(sf, '_js_patched', False):
+        return
+    sf._js_patched = True
 
-                def patched_lc(this, kwargs={}, _orig=orig):
-                    js = _orig(this, kwargs) if isinstance(kwargs, dict) else _orig(this)
-                    return re.sub(r'\blet\s+(layer_control_)', r'var \1', js)
+    _orig = sf.generate_leaflet_string
 
-                child._template.module.script = patched_lc
+    def _patched_generate(m, nested=True, base_id="div"):
+        js = _orig(m, nested=nested, base_id=base_id)
+        # Fix LayerControl: let -> var (prevents SyntaxError on re-render)
+        js = re.sub(r'\blet\s+(layer_control_)', r'var \1', js)
+        # Prepend HeatMap canvas guard (prevents getImageData on 0-width canvas)
+        if 'L.heatLayer' in js or 'heat' in js.lower():
+            js = _HEAT_GUARD + js
+        return js
 
-            # Patch HeatMap: guard canvas size
-            if hasattr(child, '_name') and 'heat' in child._name.lower():
-                orig = child._template.module.script
-
-                def patched_hm(this, kwargs={}, _orig=orig, _guard=heat_guard):
-                    js = _orig(this, kwargs) if isinstance(kwargs, dict) else _orig(this)
-                    return _guard + js
-
-                child._template.module.script = patched_hm
-
-            # Recurse into FeatureGroups
-            if hasattr(child, '_children'):
-                _patch_children(child)
-
-    _patch_children(m)
-    return m
+    sf.generate_leaflet_string = _patched_generate
+    # Also patch the reference inside _get_map_string and _get_layer_control_string
+    sf._get_map_string.__globals__['generate_leaflet_string'] = _patched_generate
+    if hasattr(sf, '_get_layer_control_string'):
+        sf._get_layer_control_string.__globals__['generate_leaflet_string'] = _patched_generate
 
 
 def _get_map_imports():
@@ -62,6 +57,7 @@ def _get_map_imports():
     import folium
     from folium.plugins import MarkerCluster, HeatMap
     from streamlit_folium import st_folium
+    _install_js_patches()
     return folium, MarkerCluster, HeatMap, st_folium
 
 
@@ -303,7 +299,6 @@ def render_map(infra,
 
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
-    _patch_folium_html(m)
     st_folium_fn(m, width=None, height=map_h, returned_objects=[])
 
 
@@ -767,5 +762,4 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     m.get_root().html.add_child(folium.Element(risk_legend))
 
     folium.LayerControl(collapsed=True).add_to(m)
-    _patch_folium_html(m)
     return st_folium_fn(m, width="100%", height=480, key=map_key, returned_objects=[])
