@@ -63,21 +63,22 @@ is_dark = st.session_state.theme == "dark"
 # ---------------------------------------------------------------------------
 BG = "#0a0e14" if is_dark else "#f8fafc"
 BG2 = "#0d1822" if is_dark else "#ffffff"
-BG3 = "#1a3a50" if is_dark else "#e2e8f0"
-TEXT = "#c8d6e5" if is_dark else "#1e293b"
-TEXT2 = "#5a8ab0" if is_dark else "#64748b"
-ACCENT = "#3cb8de"
-BORDER = "#1a3a50" if is_dark else "#cbd5e1"
+BG3 = "#1e3a52" if is_dark else "#e2e8f0"
+TEXT = "#f0f6ff" if is_dark else "#1e293b"
+TEXT2 = "#8ab4d4" if is_dark else "#64748b"
+ACCENT = "#00d4ff"
+BORDER = "#1e3a52" if is_dark else "#cbd5e1"
+GLOW = "rgba(0,212,255,0.12)"
 
 st.markdown(f"""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
 
     /* Global dark base */
     html, body, [class*="css"] {{
         background-color: {BG} !important;
         color: {TEXT} !important;
-        font-family: 'DM Mono', 'Fira Code', 'Courier New', monospace !important;
+        font-family: 'Inter', 'DM Sans', -apple-system, sans-serif !important;
     }}
 
     .main .block-container {{
@@ -104,15 +105,22 @@ st.markdown(f"""
         background: transparent !important;
         color: {TEXT2} !important;
         border: 1px solid #1a2a38 !important;
-        border-radius: 4px !important;
+        border-radius: 6px !important;
         font-size: 12px !important;
         padding: 6px 16px !important;
-        font-family: 'DM Mono', monospace !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+    }}
+    [data-testid="stTabs"] [data-baseweb="tab"]:hover {{
+        background: rgba(0,212,255,0.06) !important;
+        border-color: {BORDER} !important;
     }}
     [data-testid="stTabs"] [aria-selected="true"] {{
-        background: {BG3} !important;
+        background: rgba(0,212,255,0.10) !important;
         color: {ACCENT} !important;
         border-color: {ACCENT} !important;
+        box-shadow: 0 0 12px {GLOW};
     }}
     [data-testid="stTabContent"] {{ background: {BG} !important; border: none !important; }}
 
@@ -138,19 +146,28 @@ st.markdown(f"""
 
     /* Expander */
     [data-testid="stExpander"] {{
-        background: {BG2} !important;
+        background: rgba(13,24,34,0.7) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
         border: 1px solid {BORDER} !important;
-        border-radius: 8px !important;
+        border-radius: 10px !important;
     }}
     [data-testid="stExpander"] summary {{ color: {TEXT2} !important; font-size: 12px !important; }}
 
     /* Download button */
     [data-testid="stDownloadButton"] button {{
-        background: #0d1f2d !important;
+        background: rgba(13,31,45,0.8) !important;
+        backdrop-filter: blur(8px) !important;
         color: {ACCENT} !important;
         border: 1px solid {BORDER} !important;
-        font-family: 'DM Mono', monospace !important;
+        font-family: 'Inter', sans-serif !important;
         font-size: 11px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+    }}
+    [data-testid="stDownloadButton"] button:hover {{
+        box-shadow: 0 0 16px {GLOW};
+        border-color: {ACCENT} !important;
     }}
 
     /* Divider */
@@ -164,9 +181,11 @@ st.markdown(f"""
 
     /* Metric */
     [data-testid="metric-container"] {{
-        background: {BG2} !important;
+        background: rgba(13,24,34,0.6) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
         border: 1px solid {BORDER} !important;
-        border-radius: 8px !important;
+        border-radius: 10px !important;
         padding: 10px !important;
     }}
 
@@ -174,7 +193,7 @@ st.markdown(f"""
     ::-webkit-scrollbar {{ width: 5px; background: {BG}; }}
     ::-webkit-scrollbar-thumb {{ background: {BORDER}; border-radius: 3px; }}
 
-    /* KPI strip */
+    /* Glassmorphism KPI strip */
     .kpi-strip {{
         display: flex;
         gap: 12px;
@@ -185,29 +204,46 @@ st.markdown(f"""
     .kpi-item {{
         flex: 1;
         min-width: 130px;
-        background: {BG2};
-        border: 1px solid {BORDER};
-        border-radius: 10px;
-        padding: 12px 16px;
+        background: rgba(13,24,34,0.55);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(0,212,255,0.15);
+        border-radius: 12px;
+        padding: 14px 16px;
         text-align: center;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+        transition: all 0.25s ease;
+    }}
+    .kpi-item:hover {{
+        border-color: rgba(0,212,255,0.35);
+        box-shadow: 0 4px 24px rgba(0,212,255,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+        transform: translateY(-1px);
     }}
     .kpi-item .kpi-val {{
         font-size: 1.6rem;
         font-weight: 700;
         color: {ACCENT};
         line-height: 1;
+        font-family: 'DM Mono', monospace;
     }}
     .kpi-item .kpi-label {{
-        font-size: 0.65rem;
+        font-size: 0.62rem;
         color: {TEXT2};
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-top: 4px;
+        letter-spacing: 0.6px;
+        margin-top: 5px;
+        font-family: 'Inter', sans-serif;
+        font-weight: 500;
     }}
     .kpi-item.danger .kpi-val {{ color: #ef4444; }}
+    .kpi-item.danger {{ border-color: rgba(239,68,68,0.2); }}
+    .kpi-item.danger:hover {{ box-shadow: 0 4px 24px rgba(239,68,68,0.1); }}
     .kpi-item.warning .kpi-val {{ color: #f59e0b; }}
+    .kpi-item.warning {{ border-color: rgba(245,158,11,0.2); }}
+    .kpi-item.warning:hover {{ box-shadow: 0 4px 24px rgba(245,158,11,0.1); }}
     .kpi-item.success .kpi-val {{ color: #22c55e; }}
+    .kpi-item.success {{ border-color: rgba(34,197,94,0.2); }}
+    .kpi-item.success:hover {{ box-shadow: 0 4px 24px rgba(34,197,94,0.1); }}
 
     .sec-label {{
         font-size: 0.7rem;
@@ -216,6 +252,7 @@ st.markdown(f"""
         letter-spacing: 1px;
         margin: 20px 0 8px 0;
         font-weight: 600;
+        font-family: 'Inter', sans-serif;
     }}
 
     .sgmdi-footer {{
@@ -225,11 +262,17 @@ st.markdown(f"""
         padding: 16px 0;
         margin-top: 24px;
         border-top: 1px solid {BORDER};
+        font-family: 'Inter', sans-serif;
     }}
 
     @keyframes pulse {{
         0%, 100% {{ opacity: 1; }}
         50% {{ opacity: 0.4; }}
+    }}
+
+    @keyframes glowPulse {{
+        0%, 100% {{ box-shadow: 0 0 8px rgba(0,212,255,0.08); }}
+        50% {{ box-shadow: 0 0 16px rgba(0,212,255,0.18); }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -281,7 +324,7 @@ st.markdown(
               SGMDI · RESILIENCEAI · RIMES MAPATHON
             </span>
           </div>
-          <h1 style="font-size:22px;font-weight:700;margin:0;color:#e8f4ff;
+          <h1 style="font-size:22px;font-weight:700;margin:0;color:#f0f6ff;
                      letter-spacing:-0.01em;font-family:'DM Mono',monospace;">
             FERMIUM HAZARD MAPPER
           </h1>

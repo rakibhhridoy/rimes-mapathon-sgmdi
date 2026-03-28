@@ -419,11 +419,11 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
     if layers.get("show_lulc", False):
         legend_html = """
         <div style="position:fixed;bottom:30px;left:30px;z-index:9999;
-                    background:#0d1f2d;border:1px solid #1a3a50;border-radius:6px;
+                    background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
                     padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
-          <b style="color:#3cb8de;">LULC Classes</b><br>
+          <b style="color:#00d4ff;">LULC</b><br>
           <span style="color:#3cdea0;">|</span> Cropland &nbsp;
-          <span style="color:#3cb8de;">|</span> Water &nbsp;
+          <span style="color:#00d4ff;">|</span> Water &nbsp;
           <span style="color:#8a6a1a;">|</span> Built-up &nbsp;
           <span style="color:#4a7a4a;">|</span> Forest
         </div>
@@ -434,9 +434,9 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
     if layers.get("show_dem", False):
         dem_html = """
         <div style="position:fixed;bottom:30px;right:30px;z-index:9999;
-                    background:#0d1f2d;border:1px solid #1a3a50;border-radius:6px;
+                    background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
                     padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
-          <b style="color:#3cb8de;">Elevation (SRTM 30m)</b><br>
+          <b style="color:#00d4ff;">Elevation (SRTM 30m)</b><br>
           Low ------- High<br>
           <span style="color:#5a8ab0;">0m to 100m+ (simulated)</span>
         </div>
@@ -446,9 +446,9 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
     # --- Risk color legend ---
     risk_legend = """
     <div style="position:fixed;top:80px;right:10px;z-index:9999;
-                background:#0d1f2d;border:1px solid #1a3a50;border-radius:6px;
+                background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
                 padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
-      <b style="color:#3cb8de;">Risk Score</b><br>
+      <b style="color:#00d4ff;">Risk Score</b><br>
       <span style="color:#3cdea0;">o</span> Very Low (&lt;0.20)<br>
       <span style="color:#3a9a3a;">o</span> Low (0.20-0.40)<br>
       <span style="color:#dea03c;">o</span> Moderate (0.40-0.60)<br>
@@ -463,7 +463,7 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
 
 
 def render_region_map(region_key: str, region_data: dict, layers: dict, map_key: str = "region_map"):
-    """Render an interactive Folium map for a specific region using real data with fallback."""
+    """Render an interactive Folium map for a specific region — unified with pipeline style."""
     folium, MarkerCluster, HeatMap, st_folium_fn = _get_map_imports()
     from dashboard.data.loader import get_regional_assets
 
@@ -474,9 +474,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     m = folium.Map(
         location=center,
         zoom_start=zoom,
-        tiles="CartoDB dark_matter",
-        attr=" ",
-        prefer_canvas=True,
+        tiles=None,
         control_scale=False,
     )
 
@@ -485,10 +483,24 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
         "<style>.leaflet-control-attribution{display:none !important;}</style>"
     ))
 
-    # Kriging risk surface rings
+    # Base layers — same as pipeline map
+    folium.TileLayer(
+        tiles="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+        attr=" ", name="Dark",
+    ).add_to(m)
+    folium.TileLayer("OpenStreetMap", name="OpenStreetMap", overlay=False, attr=" ").add_to(m)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/"
+              "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr=" ", name="Satellite", overlay=False,
+    ).add_to(m)
+
+    # Kriging risk surface rings (only top-risk assets)
     if layers.get("show_hand", True) or layers.get("show_cvi", True):
-        for asset in assets:
-            _kriging_rings(folium, m, asset[0], asset[1], asset[4])
+        high_risk_assets = sorted(assets, key=lambda a: a[4], reverse=True)[:20]
+        for asset in high_risk_assets:
+            if asset[4] >= 0.6:
+                _kriging_rings(folium, m, asset[0], asset[1], asset[4])
 
     # AlphaEarth cluster overlay
     if layers.get("show_alphearth", False):
@@ -502,30 +514,56 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
                     is_centroid = props.get("is_centroid", False)
                     folium.Circle(
                         location=[coords[1], coords[0]],
-                        radius=1200 if is_centroid else 500,
+                        radius=1500 if is_centroid else 600,
                         color=props.get("color", "#a03cde"),
                         fill=True,
-                        fill_opacity=0.12 if is_centroid else 0.06,
-                        weight=0.8,
-                        tooltip=f"AlphaEarth cluster {props.get('cluster', '?')}",
+                        fill_opacity=0.15 if is_centroid else 0.08,
+                        weight=0.8 if is_centroid else 0.3,
+                        tooltip=(f"Cluster {props.get('cluster', '?')} centroid "
+                                f"({props.get('n_points', '?')} pts)"
+                                if is_centroid else
+                                f"AlphaEarth cluster {props.get('cluster', '?')}"),
                     ).add_to(m)
 
     # Population density heatmap
     if layers.get("show_popdens", False):
-        pop_points = get_pop_density_points(tuple(center), radius_deg=0.15, n_points=100)
+        pop_points = get_pop_density_points(tuple(center), radius_deg=0.3, n_points=200)
         if pop_points:
             heat_data = [[lat, lon, w] for lat, lon, w in pop_points]
             HeatMap(
                 heat_data, name="Population Density",
-                min_opacity=0.15, radius=10, blur=8,
+                min_opacity=0.15, radius=12, blur=10,
                 gradient={"0.2": "#fce7f3", "0.5": "#f472b6", "0.8": "#db2777", "1.0": "#9d174d"},
             ).add_to(m)
+
+    # Raster overlays
+    for raster_key, layer_key in [("dem", "show_dem"), ("slope", "show_slope"),
+                                   ("flood_risk", "show_cvi")]:
+        if layers.get(layer_key, False):
+            overlay = get_raster_overlay(raster_key)
+            if overlay:
+                import base64
+                folium.raster_layers.ImageOverlay(
+                    image=f"data:image/png;base64,{overlay['image_base64']}",
+                    bounds=overlay["bounds"],
+                    name=raster_key.replace("_", " ").title(),
+                    opacity=0.6,
+                ).add_to(m)
 
     # Batch kriging CI for all assets
     ci_coords = tuple((a[0], a[1], a[4]) for a in assets)
     ci_values = get_kriging_ci_batch(ci_coords) if ci_coords else []
 
-    # Asset markers
+    # MarkerCluster with gauge popups — same as pipeline map
+    marker_cluster = MarkerCluster(
+        name="Infrastructure",
+        options={
+            "maxClusterRadius": 40,
+            "spiderfyOnMaxZoom": True,
+            "showCoverageOnHover": False,
+        },
+    )
+
     for idx, (lat, lon, name, atype, score) in enumerate(assets):
         show = True
         if atype == "hospital" and not layers.get("osm_hospitals", True):
@@ -536,44 +574,60 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
             show = False
         if atype == "road"     and not layers.get("osm_roads",     True):
             show = False
-
         if not show:
             continue
 
-        col = _risk_to_color(score)
-        risk_lbl = _risk_label(score)
-        kriging_ci = ci_values[idx] if idx < len(ci_values) else score * 0.12
-        cvi_class = "IV" if score > 0.75 else "III" if score > 0.55 else "II"
+        type_color = TYPE_COLORS.get(atype, "#64748b")
+        risk_radius = max(4, min(12, score * 15)) if score > 0 else 5
+        kriging_ci = ci_values[idx] if idx < len(ci_values) else None
+        popup_html = _gauge_popup(name, atype, score, idx + 1, "", kriging_ci=kriging_ci)
 
-        popup_html = f"""
-        <div style="background:#0d1f2d;color:#e8f4ff;padding:8px 12px;
-                    border-radius:6px;font-family:monospace;font-size:11px;min-width:180px;">
-          <b style="color:#3cb8de;">{name}</b><br>
-          <span style="color:#5a8ab0;">Type:</span> {atype.title()}<br>
-          <span style="color:#5a8ab0;">GNN Risk:</span>
-          <span style="color:{col};font-weight:700;">{score:.2f} — {risk_lbl}</span><br>
-          <span style="color:#5a8ab0;">Kriging CI:</span> +/-{kriging_ci:.3f}<br>
-          <span style="color:#5a8ab0;">CVI class:</span> {cvi_class}
-        </div>
-        """
         folium.CircleMarker(
             location=[lat, lon],
-            radius=8 + score * 10,
-            color=col,
+            radius=risk_radius,
+            color=type_color,
             fill=True,
-            fill_color=col,
-            fill_opacity=0.85,
+            fill_color=type_color,
+            fill_opacity=0.7,
             weight=1.5,
-            tooltip=f"{name} | Risk: {score:.2f}",
             popup=folium.Popup(popup_html, max_width=240),
-        ).add_to(m)
+            tooltip=f"{TYPE_EMOJI.get(atype, '')} {name}",
+        ).add_to(marker_cluster)
 
-    # Risk legend
+    marker_cluster.add_to(m)
+
+    # Risk heatmap from assets
+    if assets:
+        heat_data = [[a[0], a[1], a[4]] for a in assets if a[4] > 0.1]
+        if heat_data:
+            HeatMap(
+                heat_data, name="Flood Risk Heatmap",
+                min_opacity=0.25, radius=18, blur=12,
+                gradient={"0.2": "#0ea5e9", "0.4": "#22c55e",
+                          "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444"},
+            ).add_to(m)
+
+    # LULC legend
+    if layers.get("show_lulc", False):
+        legend_html = """
+        <div style="position:fixed;bottom:30px;left:30px;z-index:9999;
+                    background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
+                    padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
+          <b style="color:#00d4ff;">LULC</b><br>
+          <span style="color:#3cdea0;">|</span> Cropland &nbsp;
+          <span style="color:#00d4ff;">|</span> Water &nbsp;
+          <span style="color:#8a6a1a;">|</span> Built-up &nbsp;
+          <span style="color:#4a7a4a;">|</span> Forest
+        </div>
+        """
+        m.get_root().html.add_child(folium.Element(legend_html))
+
+    # Risk color legend
     risk_legend = """
     <div style="position:fixed;top:80px;right:10px;z-index:9999;
-                background:#0d1f2d;border:1px solid #1a3a50;border-radius:6px;
+                background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
                 padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
-      <b style="color:#3cb8de;">Risk Score</b><br>
+      <b style="color:#00d4ff;">Risk Score</b><br>
       <span style="color:#3cdea0;">o</span> Very Low (&lt;0.20)<br>
       <span style="color:#3a9a3a;">o</span> Low (0.20-0.40)<br>
       <span style="color:#dea03c;">o</span> Moderate (0.40-0.60)<br>
@@ -583,4 +637,5 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     """
     m.get_root().html.add_child(folium.Element(risk_legend))
 
+    folium.LayerControl(collapsed=True).add_to(m)
     return st_folium_fn(m, width="100%", height=480, key=map_key, returned_objects=[])
