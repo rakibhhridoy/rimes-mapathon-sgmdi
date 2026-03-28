@@ -17,6 +17,7 @@ from dashboard.components.risk_cards import render_risk_cards
 from dashboard.components.map_view import render_map, render_region_map
 from dashboard.components.sidebar import render_sidebar, render_analytics_overlay
 from dashboard.components.cofactors import render_flood_cofactors, render_landslide_cofactors
+from dashboard.components.detail_panel import inject_panel_css, render_detail_panel
 from dashboard.components.risk_panels import (
     render_alert_banner,
     render_metric_row,
@@ -319,8 +320,48 @@ st.markdown(f"""
         0% {{ background-position: -200% 0; }}
         100% {{ background-position: 200% 0; }}
     }}
+
+    /* ── Phase 5: Accessibility ─────────────────────────────── */
+
+    /* Focus states for keyboard navigation */
+    button:focus-visible,
+    [data-testid="stCheckbox"] input:focus-visible + label,
+    [data-baseweb="tab"]:focus-visible,
+    [data-baseweb="select"]:focus-visible,
+    a:focus-visible {{
+        outline: 2px solid #00d4ff !important;
+        outline-offset: 2px !important;
+        box-shadow: 0 0 0 4px rgba(0,212,255,0.18) !important;
+    }}
+
+    /* Ensure minimum contrast on secondary text (WCAG AA 4.5:1) */
+    /* #8ab4d4 on #0a0e14 = ~5.8:1 ratio — passes AA */
+    /* Bump sidebar muted text for readability */
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
+        color: #7abcd8 !important;
+    }}
+
+    /* High-contrast mode for data values */
+    [data-testid="stMetricValue"] {{
+        color: #f0f6ff !important;
+        font-family: 'DM Mono', monospace !important;
+    }}
+
+    /* ── Tablet responsive (< 1024px) ──────────────────────── */
+    @media (max-width: 1024px) {{
+        .kpi-strip {{
+            flex-wrap: wrap;
+        }}
+        .kpi-item {{
+            min-width: calc(50% - 8px);
+            flex: 0 0 calc(50% - 8px);
+        }}
+    }}
 </style>
 """, unsafe_allow_html=True)
+
+# Detail panel CSS
+inject_panel_css()
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -1010,7 +1051,7 @@ def _render_action_tab():
 # Assets / Export sub-tabs (unchanged from original)
 # ---------------------------------------------------------------------------
 def _render_assets_tab(infra, is_dark: bool):
-    """Assets tab: type breakdown + ranked table."""
+    """Assets tab: type breakdown + ranked table + asset selector for detail panel."""
     import plotly.express as px
 
     if "asset_type" not in infra.columns:
@@ -1049,6 +1090,31 @@ def _render_assets_tab(infra, is_dark: bool):
 
         if display_cols:
             st.dataframe(top[display_cols], height=350, hide_index=True)
+
+    # Asset selector for detail panel
+    if "name" in infra.columns and "flood_risk" in infra.columns:
+        top_assets = infra.sort_values("flood_risk", ascending=False).head(50)
+        asset_names = ["— Select asset to inspect —"] + top_assets["name"].tolist()
+        chosen = st.selectbox("Inspect asset", asset_names, key="asset_selector",
+                              label_visibility="collapsed")
+        if chosen != "— Select asset to inspect —":
+            row = top_assets[top_assets["name"] == chosen].iloc[0]
+            lat = row.get("lat", None)
+            lon = row.get("lon", None)
+            if lat is None or lon is None:
+                pt = row.geometry.representative_point()
+                lat, lon = pt.y, pt.x
+            st.session_state.selected_asset = {
+                "name": str(row.get("name", "")),
+                "asset_type": str(row.get("asset_type", "")),
+                "flood_risk": float(row.get("flood_risk", 0)),
+                "risk_rank": int(row.get("risk_rank", 0)),
+                "division": str(row.get("division", "")),
+                "lat": float(lat),
+                "lon": float(lon),
+                "kriging_ci": None,
+            }
+            render_detail_panel()
 
 
 def _render_export_tab(infra, union_gdf):
