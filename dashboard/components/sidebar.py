@@ -276,22 +276,6 @@ def render_analytics_overlay(infra,
         fig.update_yaxes(gridcolor=border)
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- Risk distribution mini-histogram ---
-    if "flood_risk" in infra.columns and len(infra) > 0:
-        st.markdown(
-            f'<p style="color:{text2}; font-size:0.7rem; margin:12px 0 4px 0; '
-            f'text-transform:uppercase; letter-spacing:0.5px;">Risk Distribution</p>',
-            unsafe_allow_html=True,
-        )
-        fig_h = px.histogram(
-            infra, x="flood_risk", nbins=20,
-            color_discrete_sequence=["#38bdf8"] if is_dark else ["#3b82f6"],
-        )
-        fig_h.update_layout(height=160, showlegend=False, **layout_opts)
-        fig_h.update_xaxes(gridcolor=border, title="")
-        fig_h.update_yaxes(gridcolor=border, title="")
-        st.plotly_chart(fig_h, use_container_width=True)
-
     # --- Division pie ---
     if "division" in infra.columns:
         st.markdown(

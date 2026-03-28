@@ -239,21 +239,21 @@ def render_map(infra,
     if layers is None:
         layers = {}
 
-    _fullscreen_toggle_css()
+    # _fullscreen_toggle_css()  # hidden — expand map toggle disabled
 
-    if "map_fullscreen" not in st.session_state:
-        st.session_state.map_fullscreen = False
+    # if "map_fullscreen" not in st.session_state:
+    #     st.session_state.map_fullscreen = False
+    #
+    # st.checkbox(
+    #     "Expand map",
+    #     value=st.session_state.map_fullscreen,
+    #     key="_map_fs_toggle",
+    #     on_change=lambda: st.session_state.update(
+    #         map_fullscreen=st.session_state._map_fs_toggle
+    #     ),
+    # )
 
-    st.checkbox(
-        "Expand map",
-        value=st.session_state.map_fullscreen,
-        key="_map_fs_toggle",
-        on_change=lambda: st.session_state.update(
-            map_fullscreen=st.session_state._map_fs_toggle
-        ),
-    )
-
-    map_h = 860 if st.session_state.map_fullscreen else 620
+    map_h = 620
 
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
