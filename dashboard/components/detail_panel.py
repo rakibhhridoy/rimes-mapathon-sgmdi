@@ -162,7 +162,7 @@ def render_detail_panel():
         _bar_html("Hazard", hazard, "#ef4444") +
         _bar_html("Exposure", exposure, "#f59e0b") +
         _bar_html("Vulnerability", vuln, "#8b5cf6") +
-        _bar_html("Kriging CI", kriging_ci if kriging_ci else risk * 0.12, "#00d4ff")
+        _bar_html("Kriging CI", kriging_ci if kriging_ci is not None else risk * 0.12, "#00d4ff")
     )
 
     # CVI breakdown
@@ -252,15 +252,28 @@ def render_detail_panel():
         )
     with act_cols[1]:
         if st.button("Flag for Review", key="dp_flag"):
-            import json
+            import json, tempfile
             from pathlib import Path
             flag_path = Path("data/output/flagged.json")
             flag_path.parent.mkdir(parents=True, exist_ok=True)
             existing = []
-            if flag_path.exists():
-                existing = json.loads(flag_path.read_text())
+            try:
+                if flag_path.exists():
+                    existing = json.loads(flag_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                existing = []
             existing.append(asset)
-            flag_path.write_text(json.dumps(existing, indent=2, default=str))
+            # Atomic write: write to temp file then rename
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=flag_path.parent, suffix=".tmp"
+            )
+            try:
+                with open(tmp_fd, "w") as f:
+                    json.dump(existing, f, indent=2, default=str)
+                Path(tmp_path).replace(flag_path)
+            except OSError:
+                Path(tmp_path).unlink(missing_ok=True)
+                raise
             st.success(f"Flagged: {name}")
     with act_cols[2]:
         if st.button("Close Panel", key="dp_close"):

@@ -637,6 +637,7 @@ def _render_skeleton():
 @st.fragment
 def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dark, layers):
     """Pipeline data tab with KPIs, map, analytics, and asset/union/export sub-tabs."""
+    import pandas as pd
     import plotly.express as px
 
     # Lazy-load grid_gdf only when this tab is actually rendered

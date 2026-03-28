@@ -348,7 +348,6 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
         if layers.get(layer_key, False) and raster_key not in ("hand",):
             overlay = get_raster_overlay(raster_key)
             if overlay:
-                import base64
                 folium.raster_layers.ImageOverlay(
                     image=f"data:image/png;base64,{overlay['image_base64']}",
                     bounds=overlay["bounds"],
@@ -613,7 +612,6 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
         if layers.get(layer_key, False):
             overlay = get_raster_overlay(raster_key)
             if overlay:
-                import base64
                 folium.raster_layers.ImageOverlay(
                     image=f"data:image/png;base64,{overlay['image_base64']}",
                     bounds=overlay["bounds"],
@@ -692,6 +690,19 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
         </div>
         """
         m.get_root().html.add_child(folium.Element(legend_html))
+
+    # DEM legend
+    if layers.get("show_dem", False):
+        dem_html = """
+        <div style="position:fixed;bottom:30px;right:30px;z-index:9999;
+                    background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
+                    padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
+          <b style="color:#00d4ff;">Elevation (SRTM 30m)</b><br>
+          Low ------- High<br>
+          <span style="color:#8ab4d4;">0m to 100m+ (simulated)</span>
+        </div>
+        """
+        m.get_root().html.add_child(folium.Element(dem_html))
 
     # Risk color legend
     risk_legend = """
