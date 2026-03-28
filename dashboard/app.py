@@ -723,6 +723,24 @@ def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dar
             layers=layers,
         )
 
+        # Temporal animation directly below the pipeline map
+        st.markdown(
+            "<span style='color:#00d4ff;font-size:11px;font-weight:700;"
+            "letter-spacing:0.1em;margin-top:12px;display:block;'>"
+            "TEMPORAL RISK ANIMATION — 2024/2025</span>"
+            "<span style='color:#5a8ab0;font-size:10px;'>"
+            "Monthly risk evolution (BMD/BWDB/ReliefWeb). Use timeline slider or press play.</span>",
+            unsafe_allow_html=True,
+        )
+        # Use NW Rangpur as default region for pipeline tab animation
+        from dashboard.data.constants import DATA_SOURCES as _DS
+        _default_region = list(_DS.keys())[0]
+        render_temporal_map(
+            _default_region, _DS[_default_region], layers,
+            map_key="temporal_pipeline",
+        )
+        render_temporal_chart(_default_region)
+
     with overlay_col:
         render_analytics_overlay(filtered, union_gdf, is_dark)
 
@@ -788,6 +806,21 @@ def _render_flood_tab(layers):
         )
         render_region_map(flood_region, region_data, layers, map_key=f"flood_map_{flood_region}")
 
+        # Temporal animation directly below the map
+        st.markdown(
+            "<span style='color:#00d4ff;font-size:11px;font-weight:700;"
+            "letter-spacing:0.1em;margin-top:12px;display:block;'>"
+            "TEMPORAL RISK ANIMATION — 2024/2025</span>"
+            "<span style='color:#5a8ab0;font-size:10px;'>"
+            "Monthly risk evolution (BMD/BWDB/ReliefWeb). Use timeline slider or press play.</span>",
+            unsafe_allow_html=True,
+        )
+        render_temporal_map(
+            flood_region, region_data, layers,
+            map_key=f"temporal_flood_{flood_region}",
+        )
+        render_temporal_chart(flood_region)
+
     with panel_col:
         flood_assets = get_regional_assets(
             flood_region, tuple(region_data.get("center", [23.68, 90.35])), radius_deg=0.5)
@@ -847,31 +880,6 @@ def _render_flood_tab(layers):
     # Cofactors
     render_flood_cofactors(flood_region)
 
-    # ── Temporal Risk Animation ───────────────────────────────────
-    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-    st.markdown(
-        "<span style='color:#00d4ff;font-size:11px;font-weight:700;"
-        "letter-spacing:0.1em;'>TEMPORAL RISK ANIMATION — 2024/2025</span>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<span style='color:#5a8ab0;font-size:10px;'>"
-        "Monthly risk evolution based on BMD/BWDB/ReliefWeb event data. "
-        "Use the timeline slider or press play.</span>",
-        unsafe_allow_html=True,
-    )
-
-    anim_col, chart_col2 = st.columns([3, 2], gap="medium")
-
-    with anim_col:
-        render_temporal_map(
-            flood_region, region_data, layers,
-            map_key=f"temporal_flood_{flood_region}",
-        )
-
-    with chart_col2:
-        render_temporal_chart(flood_region)
-
 
 # ---------------------------------------------------------------------------
 # Landslide Risk tab
@@ -925,6 +933,21 @@ def _render_landslide_tab(layers):
         )
         render_region_map("CHT Landslide", LANDSLIDE_DATA, layers, map_key="landslide_map")
 
+        # Temporal animation directly below the map
+        st.markdown(
+            "<span style='color:#de3c78;font-size:11px;font-weight:700;"
+            "letter-spacing:0.1em;margin-top:12px;display:block;'>"
+            "TEMPORAL LANDSLIDE RISK — 2024/2025</span>"
+            "<span style='color:#5a8ab0;font-size:10px;'>"
+            "773 landslides Jun 18-19, 2024. Use timeline slider or press play.</span>",
+            unsafe_allow_html=True,
+        )
+        render_temporal_map(
+            "CHT Landslide", LANDSLIDE_DATA, layers,
+            map_key="temporal_landslide",
+        )
+        render_temporal_chart("CHT Landslide")
+
     with ls_panel_col:
         ls_assets = get_regional_assets(
             "CHT Landslide", tuple(LANDSLIDE_DATA.get("center", [22.5, 92.1])), radius_deg=0.5)
@@ -956,31 +979,6 @@ def _render_landslide_tab(layers):
 
     # Cofactors pane
     render_landslide_cofactors()
-
-    # ── Temporal Risk Animation ───────────────────────────────────
-    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-    st.markdown(
-        "<span style='color:#de3c78;font-size:11px;font-weight:700;"
-        "letter-spacing:0.1em;'>TEMPORAL LANDSLIDE RISK — 2024/2025</span>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<span style='color:#5a8ab0;font-size:10px;'>"
-        "Monthly susceptibility evolution. 773 landslides recorded Jun 18-19, 2024. "
-        "Use the timeline slider or press play.</span>",
-        unsafe_allow_html=True,
-    )
-
-    anim_col_ls, chart_col_ls = st.columns([3, 2], gap="medium")
-
-    with anim_col_ls:
-        render_temporal_map(
-            "CHT Landslide", LANDSLIDE_DATA, layers,
-            map_key="temporal_landslide",
-        )
-
-    with chart_col_ls:
-        render_temporal_chart("CHT Landslide")
 
 
 # ---------------------------------------------------------------------------

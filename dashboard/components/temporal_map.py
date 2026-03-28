@@ -318,6 +318,10 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
 
     folium.LayerControl(collapsed=True).add_to(m)
 
+    # Set explicit bounds to avoid branca get_bounds() error with temporal plugins
+    m.fit_bounds([[center[0] - 0.5, center[1] - 0.5],
+                  [center[0] + 0.5, center[1] + 0.5]])
+
     st_folium(m, width="100%", height=500, key=map_key, returned_objects=[])
 
 
