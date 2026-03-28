@@ -179,6 +179,14 @@ def render_map(infra: gpd.GeoDataFrame,
     if layers is None:
         layers = {}
 
+    # Build map HTML cached, display via st_folium
+    m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
+    st_folium(m, width=None, height=620, returned_objects=[])
+
+
+def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers):
+    """Build the folium Map object with all layers."""
+
     center = cfg.get("dashboard", {}).get("map_center", [25.5, 89.0]) if cfg else [25.5, 89.0]
     zoom = cfg.get("dashboard", {}).get("map_zoom", 8) if cfg else 8
 
@@ -282,29 +290,36 @@ def render_map(infra: gpd.GeoDataFrame,
             },
         )
 
+        # Vectorized layer filtering before iterating
+        display_infra = infra.copy(deep=False)
+        if "asset_type" in display_infra.columns:
+            exclude_types = set()
+            if not layers.get("osm_hospitals", True):
+                exclude_types.add("hospital")
+            if not layers.get("osm_bridges", True):
+                exclude_types.add("bridge")
+            if not layers.get("osm_schools", True):
+                exclude_types.add("school")
+            if not layers.get("osm_roads", True):
+                exclude_types.update(("road", "railway"))
+            if exclude_types:
+                display_infra = display_infra[~display_infra["asset_type"].isin(exclude_types)]
+
+        # Cap markers at 2000 (sorted by risk desc) for performance
+        if len(display_infra) > 2000 and "flood_risk" in display_infra.columns:
+            display_infra = display_infra.nlargest(2000, "flood_risk")
+
         # Pre-compute kriging CIs in batch
         ci_coords = []
         marker_rows = []
-        for _, row in infra.iterrows():
+        for _, row in display_infra.iterrows():
             lat = row.get("lat", None)
             lon = row.get("lon", None)
             if lat is None or lon is None:
                 pt = row.geometry.representative_point()
                 lat, lon = pt.y, pt.x
 
-            atype = row.get("asset_type", "other")
             risk = row.get("flood_risk", 0)
-
-            # Layer filter
-            if atype == "hospital" and not layers.get("osm_hospitals", True):
-                continue
-            if atype == "bridge" and not layers.get("osm_bridges", True):
-                continue
-            if atype == "school" and not layers.get("osm_schools", True):
-                continue
-            if atype in ("road", "railway") and not layers.get("osm_roads", True):
-                continue
-
             ci_coords.append((lat, lon, float(risk) if isinstance(risk, (int, float)) else 0.5))
             marker_rows.append((lat, lon, row))
 
@@ -438,7 +453,7 @@ def render_map(infra: gpd.GeoDataFrame,
     m.get_root().html.add_child(folium.Element(risk_legend))
 
     folium.LayerControl(collapsed=True).add_to(m)
-    st_folium(m, width=None, height=620, returned_objects=[])
+    return m
 
 
 def render_region_map(region_key: str, region_data: dict, layers: dict, map_key: str = "region_map"):

@@ -201,10 +201,11 @@ def get_regional_assets(region_key: str, center: tuple = None,
 
     Returns list of (lat, lon, name, asset_type, risk_score) tuples.
     """
-    geojson_path = OUTPUT_DIR / "risk_ranked_assets.geojson"
-    if geojson_path.exists() and center is not None:
+    if center is not None:
         try:
-            gdf = gpd.read_file(geojson_path)
+            gdf = load_gdf_fast("risk_ranked_assets")
+            if len(gdf) == 0:
+                raise ValueError("No data")
             lat_c, lon_c = center
             mask = (
                 (gdf.geometry.y >= lat_c - radius_deg) &

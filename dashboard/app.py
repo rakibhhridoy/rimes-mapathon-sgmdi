@@ -7,9 +7,7 @@ Fermium Hazard Mapper — Multi-Hazard Dashboard
 import sys
 from pathlib import Path
 
-import geopandas as gpd
-import numpy as np
-import pandas as pd
+# Defer heavy imports — only import what's needed at module level
 import streamlit as st
 import yaml
 
@@ -246,19 +244,22 @@ def load_config(config_path: str = "config.yaml") -> dict:
 
 
 @st.cache_data
-def load_gdf(path: str) -> gpd.GeoDataFrame:
+def load_gdf(path: str):
+    import geopandas as gpd
     if Path(path).exists():
         gdf = gpd.read_file(path)
-        # Ensure all column names are strings (folium crashes on float keys)
         gdf.columns = [str(c) for c in gdf.columns]
         return gdf
+    import geopandas as gpd
     return gpd.GeoDataFrame()
 
 
 @st.cache_data
-def load_csv(path: str) -> pd.DataFrame:
+def load_csv(path: str):
+    import pandas as pd
     if Path(path).exists():
         return pd.read_csv(path)
+    import pandas as pd
     return pd.DataFrame()
 
 
@@ -323,6 +324,10 @@ with nav_r:
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    import geopandas as gpd
+    import numpy as np
+    import pandas as pd
+
     cfg = load_config()
     output_dir = Path("data/output")
 
@@ -338,7 +343,8 @@ def main():
 
     union_gdf = load_gdf_fast("union_risk_summary")
     hotspot_gdf = load_gdf_fast("hotspot_clusters")
-    grid_gdf = load_gdf_fast("risk_grid")
+    # Defer grid_gdf loading — only needed in Pipeline Data tab map
+    grid_gdf = None
 
     has_pipeline_data = len(infra) > 0
 
@@ -490,9 +496,14 @@ def _render_minimal_sidebar():
 # ---------------------------------------------------------------------------
 # Pipeline Data tab (your existing functionality)
 # ---------------------------------------------------------------------------
+@st.fragment
 def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dark, layers):
     """Pipeline data tab with KPIs, map, analytics, and asset/union/export sub-tabs."""
     import plotly.express as px
+
+    # Lazy-load grid_gdf only when this tab is actually rendered
+    if grid_gdf is None:
+        grid_gdf = load_gdf_fast("risk_grid")
 
     # ── KPI Strip ──────────────────────────────────────────────
     n_total = len(filtered)
@@ -572,6 +583,7 @@ def _render_pipeline_tab(filtered, union_gdf, hotspot_gdf, grid_gdf, cfg, is_dar
 # ---------------------------------------------------------------------------
 # Flood Risk tab (Fermium-HazMapper regional)
 # ---------------------------------------------------------------------------
+@st.fragment
 def _render_flood_tab(layers):
     """Multi-region flood risk tab from Fermium-HazMapper."""
 
@@ -672,6 +684,7 @@ def _render_flood_tab(layers):
 # ---------------------------------------------------------------------------
 # Landslide Risk tab
 # ---------------------------------------------------------------------------
+@st.fragment
 def _render_landslide_tab(layers):
     """Landslide risk tab from Fermium-HazMapper."""
 
@@ -756,6 +769,7 @@ def _render_landslide_tab(layers):
 # ---------------------------------------------------------------------------
 # ACTION tab
 # ---------------------------------------------------------------------------
+@st.fragment
 def _render_action_tab():
     """Emergency response coordination tab."""
 
