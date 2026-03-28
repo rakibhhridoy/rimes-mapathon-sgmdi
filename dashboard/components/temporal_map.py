@@ -211,9 +211,9 @@ def _build_heatmap_temporal(assets, region_key: str, years=None):
 
 def render_temporal_map(region_key: str, region_data: dict, layers: dict,
                         map_key: str = "temporal_map"):
-    """Render an animated temporal risk map using TimestampedGeoJson."""
+    """Render an animated temporal risk map using HeatMapWithTime."""
     import folium
-    from folium.plugins import TimestampedGeoJson, HeatMapWithTime
+    from folium.plugins import HeatMapWithTime
     from streamlit_folium import st_folium
     from dashboard.data.loader import get_regional_assets
     from dashboard.components.map_view import _get_map_imports, _inject_js_guards
@@ -279,21 +279,19 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
             position="bottomleft",
         ).add_to(m)
 
-    # TimestampedGeoJson markers
-    geojson_data = _build_temporal_geojson(assets, region_key, years)
-
-    TimestampedGeoJson(
-        geojson_data,
-        period="P1M",  # 1 month interval
-        duration="P1M",
-        auto_play=True,
-        loop=True,
-        max_speed=2,
-        loop_button=True,
-        date_options="MMMM YYYY",
-        time_slider_drag_update=True,
-        add_last_point=False,
-    ).add_to(m)
+    # Static markers for asset locations (always visible)
+    for lat, lon, name, atype, score in assets:
+        color = "#ef4444" if score >= 0.7 else "#f59e0b" if score >= 0.5 else "#eab308" if score >= 0.3 else "#22c55e"
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=5,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.6,
+            weight=1,
+            tooltip=f"{name} ({atype})",
+        ).add_to(m)
 
     # Risk legend
     temporal_key = _get_temporal_keys(region_key)
