@@ -211,14 +211,13 @@ def _build_heatmap_temporal(assets, region_key: str, years=None):
 
 def render_temporal_map(region_key: str, region_data: dict, layers: dict,
                         map_key: str = "temporal_map"):
-    """Render an animated temporal risk map using HeatMapWithTime."""
+    """Render temporal risk map with Streamlit slider controlling the month."""
     import folium
-    from folium.plugins import HeatMapWithTime
+    from folium.plugins import HeatMap
     from streamlit_folium import st_folium
     from dashboard.data.loader import get_regional_assets
     from dashboard.components.map_view import _get_map_imports, _inject_js_guards
 
-    # Patch LayerControl template
     _get_map_imports()
 
     center = region_data.get("center", [23.68, 90.35])
@@ -229,10 +228,50 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
         st.info("No assets available for temporal animation.")
         return
 
-    # Year selection
-    years = [2024, 2025]
+    temporal_key = _get_temporal_keys(region_key)
+    multipliers = TEMPORAL_RISK.get(temporal_key, {})
 
-    # Build map
+    # Build time index: 0-23 for Jan 2024 to Dec 2025
+    time_labels = []
+    time_keys = []
+    for year in [2024, 2025]:
+        for month_idx in range(1, 13):
+            time_labels.append(f"{MONTH_LABELS[month_idx-1]} {year}")
+            time_keys.append(f"{year}-{month_idx:02d}")
+
+    # Slider to select month
+    slider_idx = st.select_slider(
+        "Timeline",
+        options=list(range(len(time_labels))),
+        format_func=lambda i: time_labels[i],
+        value=5,  # default to Jun 2024
+        key=f"temporal_slider_{map_key}",
+    )
+
+    ts_key = time_keys[slider_idx]
+    mult = multipliers.get(ts_key, 0.1)
+    label = time_labels[slider_idx]
+
+    # Risk level indicator
+    if mult >= 0.7:
+        level, level_color = "CRITICAL", "#ef4444"
+    elif mult >= 0.5:
+        level, level_color = "HIGH", "#f59e0b"
+    elif mult >= 0.3:
+        level, level_color = "MODERATE", "#eab308"
+    else:
+        level, level_color = "LOW", "#22c55e"
+
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+        f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">{label}</span>'
+        f'<span style="background:{level_color}20;color:{level_color};padding:2px 10px;'
+        f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
+        f'{level} ({mult:.0%})</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Build map for this time step
     m = folium.Map(location=center, zoom_start=zoom, tiles=None,
                    control_scale=False)
 
@@ -242,87 +281,52 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
         "<style>.leaflet-control-attribution{display:none !important;}</style>"
     ))
 
-    # Base layers
     folium.TileLayer(
         tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
         attr=" ", name="Dark",
     ).add_to(m)
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap",
-                     overlay=False, attr=" ").add_to(m)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/"
-              "World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr=" ", name="Satellite", overlay=False,
-    ).add_to(m)
 
-    # Temporal heatmap layer
-    heat_data = _build_heatmap_temporal(assets, region_key, years)
-    time_index = []
-    for year in years:
-        for month_idx in range(1, 13):
-            time_index.append(f"{MONTH_LABELS[month_idx-1]} {year}")
+    # Heatmap for this month
+    heat_data = []
+    for lat, lon, name, atype, base_score in assets:
+        risk = min(1.0, base_score * mult / 0.7)
+        if risk > 0.05:
+            heat_data.append([lat, lon, risk])
 
-    if heat_data and any(len(pts) > 0 for pts in heat_data):
-        HeatMapWithTime(
+    if heat_data:
+        HeatMap(
             heat_data,
-            index=time_index,
-            name="Risk Heatmap (Temporal)",
-            auto_play=True,
-            speed_step=1,
-            max_opacity=0.8,
-            min_opacity=0.1,
+            name=f"Risk Heatmap — {label}",
+            min_opacity=0.2,
             radius=25,
+            blur=15,
             gradient={
                 "0.2": "#0ea5e9", "0.4": "#22c55e",
                 "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444",
             },
-            position="bottomleft",
         ).add_to(m)
 
-    # Static markers for asset locations (always visible)
-    for lat, lon, name, atype, score in assets:
-        color = "#ef4444" if score >= 0.7 else "#f59e0b" if score >= 0.5 else "#eab308" if score >= 0.3 else "#22c55e"
+    # Asset markers scaled by temporal risk
+    for lat, lon, name, atype, base_score in assets:
+        risk = min(1.0, base_score * mult / 0.7)
+        color = "#ef4444" if risk >= 0.7 else "#f59e0b" if risk >= 0.5 else "#eab308" if risk >= 0.3 else "#22c55e"
+        radius = max(4, min(14, risk * 18))
+
         folium.CircleMarker(
             location=[lat, lon],
-            radius=5,
+            radius=radius,
             color=color,
             fill=True,
             fill_color=color,
-            fill_opacity=0.6,
-            weight=1,
-            tooltip=f"{name} ({atype})",
+            fill_opacity=0.7,
+            weight=1.5,
+            tooltip=f"{name} ({atype}) — Risk: {risk:.2f}",
         ).add_to(m)
-
-    # Risk legend
-    temporal_key = _get_temporal_keys(region_key)
-    legend_html = f"""
-    <div style="position:fixed;top:80px;right:10px;z-index:9999;
-                background:#0d1f2d;border:1px solid #1e3a52;border-radius:6px;
-                padding:8px 12px;font-size:10px;font-family:monospace;color:#a0c0d8;">
-      <b style="color:#00d4ff;">Temporal Risk</b><br>
-      <b style="color:#8ab4d4;font-size:9px;">{temporal_key}</b><br>
-      <span style="color:#22c55e;">&#9679;</span> Low (&lt;0.30)<br>
-      <span style="color:#eab308;">&#9679;</span> Moderate (0.30-0.50)<br>
-      <span style="color:#f59e0b;">&#9679;</span> High (0.50-0.70)<br>
-      <span style="color:#ef4444;">&#9679;</span> Critical (&gt;0.70)<br>
-      <hr style="border-color:#1e3a52;margin:4px 0;">
-      <span style="color:#5a8ab0;font-size:9px;">
-        2024 actual &middot; 2025 projected<br>
-        Source: BMD, BWDB, ReliefWeb
-      </span>
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(legend_html))
 
     folium.LayerControl(collapsed=True).add_to(m)
 
-    # Override get_bounds to return fixed bounds — avoids branca TypeError
-    # when HeatMapWithTime returns nested lists that break none_min()
-    _bounds = [[center[0] - 0.5, center[1] - 0.5],
-               [center[0] + 0.5, center[1] + 0.5]]
-    m.get_bounds = lambda: _bounds
-
-    st_folium(m, width="100%", height=500, key=map_key, returned_objects=[])
+    st_folium(m, width="100%", height=420, key=f"{map_key}_{slider_idx}",
+              returned_objects=[])
 
 
 def render_temporal_chart(region_key: str, chart_key: str = ""):
