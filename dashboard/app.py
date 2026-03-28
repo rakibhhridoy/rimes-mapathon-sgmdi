@@ -250,7 +250,6 @@ def load_gdf(path: str):
         gdf = gpd.read_file(path)
         gdf.columns = [str(c) for c in gdf.columns]
         return gdf
-    import geopandas as gpd
     return gpd.GeoDataFrame()
 
 
@@ -259,7 +258,6 @@ def load_csv(path: str):
     import pandas as pd
     if Path(path).exists():
         return pd.read_csv(path)
-    import pandas as pd
     return pd.DataFrame()
 
 
@@ -912,7 +910,7 @@ def _render_action_tab():
 # ---------------------------------------------------------------------------
 # Assets / Export sub-tabs (unchanged from original)
 # ---------------------------------------------------------------------------
-def _render_assets_tab(infra: gpd.GeoDataFrame, is_dark: bool):
+def _render_assets_tab(infra, is_dark: bool):
     """Assets tab: type breakdown + ranked table."""
     import plotly.express as px
 
@@ -954,7 +952,7 @@ def _render_assets_tab(infra: gpd.GeoDataFrame, is_dark: bool):
             st.dataframe(top[display_cols], height=350, hide_index=True)
 
 
-def _render_export_tab(infra: gpd.GeoDataFrame, union_gdf: gpd.GeoDataFrame):
+def _render_export_tab(infra, union_gdf):
     """Export tab with download buttons."""
     st.markdown("Download filtered data in different formats.")
 
