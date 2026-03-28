@@ -520,6 +520,34 @@ def main():
         ])
         tab_pipeline = None
 
+    # Auto-refresh map iframes on tab switch
+    import streamlit.components.v1 as _components
+    _components.html(
+        '<script>'
+        '(function(){'
+        'var done=false;'
+        'function setup(){'
+        'var tabs=parent.document.querySelectorAll("[data-baseweb=tab]");'
+        'if(!tabs.length){setTimeout(setup,500);return;}'
+        'if(done)return;done=true;'
+        'tabs.forEach(function(tab){'
+        'tab.addEventListener("click",function(){'
+        'setTimeout(function(){'
+        'var fs=parent.document.querySelectorAll("iframe");'
+        'fs.forEach(function(f){try{'
+        'if(f.contentWindow.document.querySelector(".leaflet-container"))'
+        'f.contentWindow.location.reload();'
+        '}catch(e){}});'
+        '},600);'
+        '});'
+        '});'
+        '}'
+        'setup();'
+        '})();'
+        '</script>',
+        height=0,
+    )
+
     # ══════════════════════════════════════════════════════════════
     # TAB: PIPELINE DATA (real data from pipeline)
     # ══════════════════════════════════════════════════════════════
