@@ -329,16 +329,28 @@ def render_map(infra,
 
     map_h = 620
 
-    if st.button("Refresh Map", key="refresh_pipeline_map", type="tertiary"):
-        if "_pipeline_map_counter" not in st.session_state:
-            st.session_state._pipeline_map_counter = 0
-        st.session_state._pipeline_map_counter += 1
-
-    map_key = f"pipeline_map_{st.session_state.get('_pipeline_map_counter', 0)}"
+    # Refresh button — reloads map iframe via JS, no Streamlit rerun
+    st.markdown(
+        """
+        <button onclick="
+            var iframes = parent.document.querySelectorAll('iframe[title*=\\'streamlit_folium\\']');
+            iframes.forEach(function(f){ f.contentWindow.location.reload(); });
+        " style="
+            background:rgba(13,24,34,0.85); backdrop-filter:blur(10px);
+            border:1px solid #1e3a52; border-radius:6px;
+            color:#8ab4d4; font-size:11px; font-family:Inter,sans-serif;
+            padding:5px 14px; cursor:pointer; margin-bottom:8px;
+            transition:all 0.2s ease;
+        " onmouseover="this.style.borderColor='#00d4ff';this.style.color='#00d4ff'"
+          onmouseout="this.style.borderColor='#1e3a52';this.style.color='#8ab4d4'"
+        >Refresh Map</button>
+        """,
+        unsafe_allow_html=True,
+    )
 
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
-    st_folium_fn(m, width=None, height=map_h, key=map_key, returned_objects=[])
+    st_folium_fn(m, width=None, height=map_h, returned_objects=[])
 
 
 def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers):
