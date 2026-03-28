@@ -331,20 +331,15 @@ def render_map(infra,
 
     # Refresh button — reloads map iframe via JS, no Streamlit rerun
     st.markdown(
-        """
-        <button onclick="
-            var iframes = parent.document.querySelectorAll('iframe[title*=\\'streamlit_folium\\']');
-            iframes.forEach(function(f){ f.contentWindow.location.reload(); });
-        " style="
-            background:rgba(13,24,34,0.85); backdrop-filter:blur(10px);
-            border:1px solid #1e3a52; border-radius:6px;
-            color:#8ab4d4; font-size:11px; font-family:Inter,sans-serif;
-            padding:5px 14px; cursor:pointer; margin-bottom:8px;
-            transition:all 0.2s ease;
-        " onmouseover="this.style.borderColor='#00d4ff';this.style.color='#00d4ff'"
-          onmouseout="this.style.borderColor='#1e3a52';this.style.color='#8ab4d4'"
-        >Refresh Map</button>
-        """,
+        '<button onclick="var fs=parent.document.querySelectorAll(&quot;iframe&quot;);'
+        'fs.forEach(function(f){try{f.contentWindow.location.reload()}catch(e){}});" '
+        'style="background:rgba(13,24,34,0.85);backdrop-filter:blur(10px);'
+        'border:1px solid #1e3a52;border-radius:6px;color:#8ab4d4;font-size:11px;'
+        'font-family:Inter,sans-serif;padding:5px 14px;cursor:pointer;margin-bottom:8px;'
+        'transition:all 0.2s ease;" '
+        'onmouseover="this.style.borderColor=&quot;#00d4ff&quot;;this.style.color=&quot;#00d4ff&quot;" '
+        'onmouseout="this.style.borderColor=&quot;#1e3a52&quot;;this.style.color=&quot;#8ab4d4&quot;"'
+        '>Refresh Map</button>',
         unsafe_allow_html=True,
     )
 
