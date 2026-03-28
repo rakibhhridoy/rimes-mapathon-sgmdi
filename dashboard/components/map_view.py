@@ -329,9 +329,16 @@ def render_map(infra,
 
     map_h = 620
 
+    if st.button("Refresh Map", key="refresh_pipeline_map", type="tertiary"):
+        if "_pipeline_map_counter" not in st.session_state:
+            st.session_state._pipeline_map_counter = 0
+        st.session_state._pipeline_map_counter += 1
+
+    map_key = f"pipeline_map_{st.session_state.get('_pipeline_map_counter', 0)}"
+
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
-    st_folium_fn(m, width=None, height=map_h, returned_objects=[])
+    st_folium_fn(m, width=None, height=map_h, key=map_key, returned_objects=[])
 
 
 def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers):
