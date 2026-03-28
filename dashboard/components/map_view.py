@@ -8,7 +8,53 @@ Interactive Folium map with:
   - AlphaEarth cluster overlay + population density (from Fermium-HazMapper)
 """
 
+import re
+
 import streamlit as st
+
+
+def _patch_folium_html(m):
+    """Patch folium JS templates before st_folium renders them.
+
+    st_folium extracts JS via each child's _template.module.script(), so we
+    must patch at that level — patching root.render() has no effect.
+    """
+    heat_guard = (
+        '(function(){if(typeof L!=="undefined"&&L.HeatLayer){'
+        'var _od=L.HeatLayer.prototype._draw;'
+        'L.HeatLayer.prototype._draw=function(){'
+        'if(this._canvas&&this._canvas.width>0)_od.call(this);};'
+        '}})();\n'
+    )
+
+    def _patch_children(parent):
+        for child in parent._children.values():
+            # Patch LayerControl: let -> var (Folium _name is "LayerControl", no underscore)
+            if hasattr(child, '_name') and ('layercontrol' in child._name.lower() or 'layer_control' in child._name.lower()):
+                orig = child._template.module.script
+
+                def patched_lc(this, kwargs={}, _orig=orig):
+                    js = _orig(this, kwargs) if isinstance(kwargs, dict) else _orig(this)
+                    return re.sub(r'\blet\s+(layer_control_)', r'var \1', js)
+
+                child._template.module.script = patched_lc
+
+            # Patch HeatMap: guard canvas size
+            if hasattr(child, '_name') and 'heat' in child._name.lower():
+                orig = child._template.module.script
+
+                def patched_hm(this, kwargs={}, _orig=orig, _guard=heat_guard):
+                    js = _orig(this, kwargs) if isinstance(kwargs, dict) else _orig(this)
+                    return _guard + js
+
+                child._template.module.script = patched_hm
+
+            # Recurse into FeatureGroups
+            if hasattr(child, '_children'):
+                _patch_children(child)
+
+    _patch_children(m)
+    return m
 
 
 def _get_map_imports():
@@ -257,6 +303,7 @@ def render_map(infra,
 
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
+    _patch_folium_html(m)
     st_folium_fn(m, width=None, height=map_h, returned_objects=[])
 
 
@@ -720,4 +767,5 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     m.get_root().html.add_child(folium.Element(risk_legend))
 
     folium.LayerControl(collapsed=True).add_to(m)
+    _patch_folium_html(m)
     return st_folium_fn(m, width="100%", height=480, key=map_key, returned_objects=[])
