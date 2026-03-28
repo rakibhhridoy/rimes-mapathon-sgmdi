@@ -304,17 +304,23 @@ def _fullscreen_toggle_css():
 
 def _render_refresh_map_button():
     """Refresh Map button — reloads map iframes via JS, no Streamlit rerun."""
-    st.markdown(
-        '<button onclick="var fs=parent.document.querySelectorAll(&quot;iframe&quot;);'
-        'fs.forEach(function(f){try{f.contentWindow.location.reload()}catch(e){}});" '
-        'style="background:rgba(13,24,34,0.85);backdrop-filter:blur(10px);'
+    import streamlit.components.v1 as components
+    components.html(
+        '<button id="rfm" style="background:rgba(13,24,34,0.85);backdrop-filter:blur(10px);'
         'border:1px solid #1e3a52;border-radius:6px;color:#8ab4d4;font-size:11px;'
-        'font-family:Inter,sans-serif;padding:5px 14px;cursor:pointer;margin-bottom:8px;'
-        'transition:all 0.2s ease;" '
-        'onmouseover="this.style.borderColor=&quot;#00d4ff&quot;;this.style.color=&quot;#00d4ff&quot;" '
-        'onmouseout="this.style.borderColor=&quot;#1e3a52&quot;;this.style.color=&quot;#8ab4d4&quot;"'
-        '>Refresh Map</button>',
-        unsafe_allow_html=True,
+        'font-family:Inter,sans-serif;padding:5px 14px;cursor:pointer;'
+        'transition:all 0.2s ease;">Refresh Map</button>'
+        '<script>'
+        'var b=document.getElementById("rfm");'
+        'b.addEventListener("click",function(){'
+        'var fs=parent.document.querySelectorAll("iframe");'
+        'fs.forEach(function(f){try{if(f.contentWindow.document.querySelector(".leaflet-container"))'
+        'f.contentWindow.location.reload()}catch(e){}});'
+        '});'
+        'b.addEventListener("mouseover",function(){b.style.borderColor="#00d4ff";b.style.color="#00d4ff"});'
+        'b.addEventListener("mouseout",function(){b.style.borderColor="#1e3a52";b.style.color="#8ab4d4"});'
+        '</script>',
+        height=36,
     )
 
 
