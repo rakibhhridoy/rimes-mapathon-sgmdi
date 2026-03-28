@@ -358,9 +358,9 @@ def render_temporal_chart(region_key: str):
     ))
 
     # Add threshold lines
-    fig.add_hline(y=0.7, line_dash="dash", line_color="#ef444466",
+    fig.add_hline(y=0.7, line_dash="dash", line_color="rgba(239,68,68,0.4)",
                   annotation_text="Critical", annotation_position="right")
-    fig.add_hline(y=0.5, line_dash="dash", line_color="#f59e0b44",
+    fig.add_hline(y=0.5, line_dash="dash", line_color="rgba(245,158,11,0.27)",
                   annotation_text="High", annotation_position="right")
 
     fig.update_layout(
