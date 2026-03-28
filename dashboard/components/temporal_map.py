@@ -211,7 +211,8 @@ def _build_heatmap_temporal(assets, region_key: str, years=None):
 
 def render_temporal_map(region_key: str, region_data: dict, layers: dict,
                         map_key: str = "temporal_map"):
-    """Render temporal risk map with Streamlit slider controlling the month."""
+    """Render temporal risk map with play/pause animation and slider."""
+    import time as _time
     import folium
     from folium.plugins import HeatMap
     from streamlit_folium import st_folium
@@ -239,13 +240,55 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
             time_labels.append(f"{MONTH_LABELS[month_idx-1]} {year}")
             time_keys.append(f"{year}-{month_idx:02d}")
 
+    n_frames = len(time_labels)
+
+    # Session state keys for this map's animation
+    play_key = f"temporal_playing_{map_key}"
+    speed_key = f"temporal_speed_{map_key}"
+    slider_key = f"temporal_slider_{map_key}"
+
+    if play_key not in st.session_state:
+        st.session_state[play_key] = False
+    # speed_key is owned by the selectbox widget — no pre-init needed
+
+    # ── Playback controls row ─────────────────────────────────
+    ctrl_cols = st.columns([1, 1, 1, 4])
+
+    with ctrl_cols[0]:
+        if st.session_state[play_key]:
+            if st.button("⏸ Pause", key=f"pause_{map_key}", use_container_width=True):
+                st.session_state[play_key] = False
+                st.rerun()
+        else:
+            if st.button("▶ Play", key=f"play_{map_key}", use_container_width=True):
+                st.session_state[play_key] = True
+                st.rerun()
+
+    with ctrl_cols[1]:
+        if st.button("⏮ Reset", key=f"reset_{map_key}", use_container_width=True):
+            st.session_state[play_key] = False
+            st.session_state[slider_key] = 0
+            st.rerun()
+
+    with ctrl_cols[2]:
+        speed = st.selectbox(
+            "Speed", [0.5, 1.0, 2.0, 3.0],
+            index=1,
+            format_func=lambda x: f"{x}×",
+            key=speed_key,
+            label_visibility="collapsed",
+        )
+
+    # Initialize slider default on first render
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = 5
+
     # Slider to select month
     slider_idx = st.select_slider(
         "Timeline",
-        options=list(range(len(time_labels))),
+        options=list(range(n_frames)),
         format_func=lambda i: time_labels[i],
-        value=5,  # default to Jun 2024
-        key=f"temporal_slider_{map_key}",
+        key=slider_key,
     )
 
     ts_key = time_keys[slider_idx]
@@ -265,7 +308,8 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
     st.markdown(
         f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
         f'<span style="color:#8ab4d4;font-size:12px;font-family:DM Mono,monospace;">{label}</span>'
-        f'<span style="background:{level_color}20;color:{level_color};padding:2px 10px;'
+        f'<span style="background:rgba({int(level_color[1:3],16)},{int(level_color[3:5],16)},'
+        f'{int(level_color[5:7],16)},0.13);color:{level_color};padding:2px 10px;'
         f'border-radius:10px;font-size:11px;font-weight:700;font-family:Inter,sans-serif;">'
         f'{level} ({mult:.0%})</span></div>',
         unsafe_allow_html=True,
@@ -327,6 +371,19 @@ def render_temporal_map(region_key: str, region_data: dict, layers: dict,
 
     st_folium(m, width="100%", height=420, key=f"{map_key}_{slider_idx}",
               returned_objects=[])
+
+    # ── Auto-advance when playing ─────────────────────────────
+    if st.session_state.get(play_key, False):
+        spd = st.session_state.get(speed_key, 1.0)
+        if not isinstance(spd, (int, float)):
+            spd = 1.0
+        delay = max(0.15, 1.0 / spd)
+        _time.sleep(delay)
+        next_idx = slider_idx + 1
+        if next_idx >= n_frames:
+            next_idx = 0  # loop back to start
+        st.session_state[slider_key] = next_idx
+        st.rerun()
 
 
 def render_temporal_chart(region_key: str, chart_key: str = ""):
