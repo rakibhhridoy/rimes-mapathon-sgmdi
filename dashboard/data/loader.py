@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import streamlit as st
 
 from dashboard.data.constants import (
     DATA_SOURCES,
@@ -25,10 +26,51 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path("data/output")
 PROCESSED_DIR = Path("data/processed")
 RAW_DIR = Path("data/raw")
+CACHE_DIR = Path("data/cache")
+
+
+# ── Fast GeoDataFrame loader (parquet > geojson) ────────────────────────────
+
+@st.cache_data(ttl=600)
+def load_gdf_fast(name: str) -> gpd.GeoDataFrame:
+    """Load GeoDataFrame from parquet cache, falling back to GeoJSON."""
+    parquet_path = CACHE_DIR / f"{name}.parquet"
+    geojson_path = OUTPUT_DIR / f"{name}.geojson"
+
+    if parquet_path.exists():
+        gdf = gpd.read_parquet(parquet_path)
+        gdf.columns = [str(c) for c in gdf.columns]
+        return gdf
+    elif geojson_path.exists():
+        gdf = gpd.read_file(geojson_path)
+        gdf.columns = [str(c) for c in gdf.columns]
+        return gdf
+    return gpd.GeoDataFrame()
+
+
+@st.cache_data(ttl=600)
+def load_heatmap_points() -> list:
+    """Load pre-computed heatmap points from cache."""
+    cache_path = CACHE_DIR / "heatmap_points.json"
+    if cache_path.exists():
+        with open(cache_path) as f:
+            return json.load(f)
+    return []
+
+
+@st.cache_data(ttl=600)
+def load_cached_raster_overlay(raster_name: str) -> dict | None:
+    """Load pre-rendered raster overlay from cache."""
+    cache_path = CACHE_DIR / f"raster_{raster_name}.json"
+    if cache_path.exists():
+        with open(cache_path) as f:
+            return json.load(f)
+    return None
 
 
 # ── Pipeline metadata / confidence ────────────────────────────────────────────
 
+@st.cache_data(ttl=300)
 def load_pipeline_metadata() -> dict | None:
     """Load pipeline_metadata.json if available."""
     path = OUTPUT_DIR / "pipeline_metadata.json"
@@ -41,6 +83,7 @@ def load_pipeline_metadata() -> dict | None:
     return None
 
 
+@st.cache_data(ttl=300)
 def get_confidence_metrics() -> dict:
     """
     Return real confidence metrics from pipeline metadata,
@@ -79,9 +122,78 @@ def get_confidence_metrics() -> dict:
     return result
 
 
+# ── Kriging variance preload ─────────────────────────────────────────────────
+
+@st.cache_resource
+def _load_kriging_raster():
+    """Preload kriging variance raster once into memory."""
+    variance_path = OUTPUT_DIR / "kriging_variance.tif"
+    if variance_path.exists():
+        try:
+            import rasterio
+            with rasterio.open(variance_path) as src:
+                return {
+                    "data": src.read(1),
+                    "transform": src.transform,
+                    "crs": src.crs,
+                    "nodata": src.nodata,
+                    "bounds": src.bounds,
+                }
+        except Exception:
+            pass
+    return None
+
+
+def get_kriging_ci_at_point(lat: float, lon: float,
+                            fallback_score: float = 0.5) -> float:
+    """
+    Sample kriging variance at a point. Returns CI width.
+    Falls back to score * 0.12 approximation.
+    """
+    raster = _load_kriging_raster()
+    if raster is not None:
+        try:
+            import rasterio
+            row, col = rasterio.transform.rowcol(raster["transform"], lon, lat)
+            data = raster["data"]
+            if 0 <= row < data.shape[0] and 0 <= col < data.shape[1]:
+                val = data[row, col]
+                if val != raster["nodata"] and not np.isnan(val):
+                    return round(float(2 * 1.96 * np.sqrt(val)), 3)
+        except Exception:
+            pass
+
+    return round(fallback_score * 0.12, 3)
+
+
+# ── Batch kriging CI (for popups) ────────────────────────────────────────────
+
+@st.cache_data(ttl=300)
+def get_kriging_ci_batch(coords_and_scores: tuple) -> list[float]:
+    """Compute kriging CI for a batch of (lat, lon, score) tuples at once."""
+    raster = _load_kriging_raster()
+    results = []
+    for lat, lon, score in coords_and_scores:
+        if raster is not None:
+            try:
+                import rasterio
+                row, col = rasterio.transform.rowcol(raster["transform"], lon, lat)
+                data = raster["data"]
+                if 0 <= row < data.shape[0] and 0 <= col < data.shape[1]:
+                    val = data[row, col]
+                    if val != raster["nodata"] and not np.isnan(val):
+                        results.append(round(float(2 * 1.96 * np.sqrt(val)), 3))
+                        continue
+            except Exception:
+                pass
+        results.append(round(score * 0.12, 3))
+    return results
+
+
 # ── Regional assets ───────────────────────────────────────────────────────────
 
-def get_regional_assets(region_key: str, center: list = None,
+@st.cache_data(ttl=300)
+def get_regional_assets(region_key: str, center: tuple = None,
                         radius_deg: float = 0.5) -> list[tuple]:
     """
     Get infrastructure assets near a region center.
@@ -93,7 +205,6 @@ def get_regional_assets(region_key: str, center: list = None,
     if geojson_path.exists() and center is not None:
         try:
             gdf = gpd.read_file(geojson_path)
-            # Filter by bbox around center
             lat_c, lon_c = center
             mask = (
                 (gdf.geometry.y >= lat_c - radius_deg) &
@@ -101,18 +212,18 @@ def get_regional_assets(region_key: str, center: list = None,
                 (gdf.geometry.x >= lon_c - radius_deg) &
                 (gdf.geometry.x <= lon_c + radius_deg)
             )
-            nearby = gdf[mask].head(20)  # top 20 by risk
+            nearby = gdf[mask].head(20)
             if len(nearby) > 0:
-                assets = []
-                for _, row in nearby.iterrows():
-                    assets.append((
+                return [
+                    (
                         row.geometry.y,
                         row.geometry.x,
                         row.get("name", "Unknown"),
                         row.get("asset_type", "unknown"),
                         float(row.get("flood_risk", 0.5)),
-                    ))
-                return assets
+                    )
+                    for _, row in nearby.iterrows()
+                ]
         except Exception as e:
             logger.warning(f"Could not load real assets for {region_key}: {e}")
 
@@ -123,6 +234,7 @@ def get_regional_assets(region_key: str, center: list = None,
 
 # ── Upazila risk ──────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300)
 def get_upazila_risk(region_key: str) -> list[dict]:
     """
     Get upazila-level risk data.
@@ -132,14 +244,13 @@ def get_upazila_risk(region_key: str) -> list[dict]:
     if csv_path.exists():
         try:
             df = pd.read_csv(csv_path)
-            # Map upazila data to the expected format
             results = []
             for _, row in df.iterrows():
                 name = row.get("admin_name") or row.get("NAME_2", "Unknown")
                 mean_risk = float(row.get("mean_risk", 0))
                 results.append({
                     "upazila": name,
-                    "cvi": round(mean_risk * 0.9, 2),  # approximate CVI from risk
+                    "cvi": round(mean_risk * 0.9, 2),
                     "flood_risk": round(mean_risk, 2),
                     "pop_exposed": int(row.get("total_assets", 0) * 500),
                     "class": _risk_to_class(mean_risk),
@@ -166,6 +277,7 @@ def _risk_to_class(risk: float) -> int:
 
 # ── Landslide upazila ─────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300)
 def get_landslide_upazila() -> list[dict]:
     """
     Get landslide upazila data.
@@ -176,7 +288,6 @@ def get_landslide_upazila() -> list[dict]:
         try:
             with open(json_path) as f:
                 data = json.load(f)
-            # Normalize to expected format
             results = []
             for d in data:
                 results.append({
@@ -195,6 +306,7 @@ def get_landslide_upazila() -> list[dict]:
 
 # ── Emergency shelters ────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300)
 def get_emergency_shelters() -> list[dict]:
     """
     Get emergency shelter data from real infrastructure or fallback.
@@ -205,7 +317,6 @@ def get_emergency_shelters() -> list[dict]:
             gdf = gpd.read_file(str(infra_path))
             shelters = gdf[gdf["asset_type"] == "flood_shelter"]
             if len(shelters) > 0:
-                # Attach risk scores if available
                 scores_path = OUTPUT_DIR / "gnn_risk_scores.npy"
                 all_scores = None
                 if scores_path.exists():
@@ -220,7 +331,7 @@ def get_emergency_shelters() -> list[dict]:
                         "region": row.get("division", "Unknown"),
                         "lat": pt.y,
                         "lon": pt.x,
-                        "capacity": 1500,  # default estimate
+                        "capacity": 1500,
                         "status": "OPEN",
                         "cvi_class": _risk_to_class(risk),
                     })
@@ -232,32 +343,10 @@ def get_emergency_shelters() -> list[dict]:
     return EMERGENCY_SHELTERS
 
 
-# ── Kriging CI at point ───────────────────────────────────────────────────────
-
-def get_kriging_ci_at_point(lat: float, lon: float,
-                            fallback_score: float = 0.5) -> float:
-    """
-    Sample kriging variance at a point. Returns CI width.
-    Falls back to score * 0.12 approximation.
-    """
-    variance_path = OUTPUT_DIR / "kriging_variance.tif"
-    if variance_path.exists():
-        try:
-            import rasterio
-            with rasterio.open(variance_path) as src:
-                vals = list(src.sample([(lon, lat)]))
-                if vals and vals[0][0] != src.nodata:
-                    # CI width = 2 * 1.96 * sqrt(variance)
-                    return round(float(2 * 1.96 * np.sqrt(vals[0][0])), 3)
-        except Exception:
-            pass
-
-    return round(fallback_score * 0.12, 3)
-
-
 # ── Population density ────────────────────────────────────────────────────────
 
-def get_pop_density_points(center: list, radius_deg: float = 0.3,
+@st.cache_data(ttl=600)
+def get_pop_density_points(center: tuple, radius_deg: float = 0.3,
                            n_points: int = 200) -> list[tuple]:
     """
     Sample real population density from WorldPop raster.
@@ -270,14 +359,10 @@ def get_pop_density_points(center: list, radius_deg: float = 0.3,
             import rasterio
             lat_c, lon_c = center
             with rasterio.open(pop_path) as src:
-                # Generate grid of sample points
-                lats = np.linspace(lat_c - radius_deg, lat_c + radius_deg, int(n_points**0.5))
-                lons = np.linspace(lon_c - radius_deg, lon_c + radius_deg, int(n_points**0.5))
-                points = []
-                coords = []
-                for lat in lats:
-                    for lon in lons:
-                        coords.append((lon, lat))
+                grid_side = int(n_points**0.5)
+                lats = np.linspace(lat_c - radius_deg, lat_c + radius_deg, grid_side)
+                lons = np.linspace(lon_c - radius_deg, lon_c + radius_deg, grid_side)
+                coords = [(lon, lat) for lat in lats for lon in lons]
 
                 vals = list(src.sample(coords))
                 results = []
@@ -287,7 +372,6 @@ def get_pop_density_points(center: list, radius_deg: float = 0.3,
                         results.append((lat, lon, density))
 
                 if results:
-                    # Normalize densities
                     max_d = max(r[2] for r in results)
                     if max_d > 0:
                         results = [(lat, lon, d / max_d) for lat, lon, d in results]
@@ -308,6 +392,7 @@ def get_pop_density_points(center: list, radius_deg: float = 0.3,
 
 # ── AlphaEarth clusters ──────────────────────────────────────────────────────
 
+@st.cache_data(ttl=600)
 def get_alphaearth_clusters() -> dict | None:
     """
     Load AlphaEarth cluster GeoJSON if available.
@@ -325,12 +410,19 @@ def get_alphaearth_clusters() -> dict | None:
 
 # ── Raster overlay ────────────────────────────────────────────────────────────
 
-def get_raster_overlay(raster_name: str, bounds: list = None) -> dict | None:
+@st.cache_data(ttl=600)
+def get_raster_overlay(raster_name: str, _bounds: tuple = None) -> dict | None:
     """
     Read a GeoTIFF raster and return data for folium ImageOverlay.
+    Checks pre-rendered cache first for instant loading.
 
     Returns dict with 'image_base64', 'bounds', 'name' or None.
     """
+    # Try pre-rendered cache first (instant)
+    cached = load_cached_raster_overlay(raster_name)
+    if cached is not None:
+        return cached
+
     raster_map = {
         "dem": PROCESSED_DIR / "dem_reprojected.tif",
         "slope": PROCESSED_DIR / "slope.tif",
@@ -381,15 +473,12 @@ def get_raster_overlay(raster_name: str, bounds: list = None) -> dict | None:
 
             cmap = cm.get_cmap(cmap_name)
             rgba = cmap(norm)
-            # Make NaN transparent
             rgba[np.isnan(data)] = [0, 0, 0, 0]
-            # Set overall transparency
             rgba[:, :, 3] *= 0.6
 
-            # Convert to PNG
             img = Image.fromarray((rgba * 255).astype(np.uint8))
             buf = BytesIO()
-            img.save(buf, format="PNG")
+            img.save(buf, format="PNG", optimize=True)
             img_base64 = base64.b64encode(buf.getvalue()).decode()
 
             return {

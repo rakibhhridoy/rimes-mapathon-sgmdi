@@ -18,7 +18,9 @@ from dashboard.data.loader import (
     get_alphaearth_clusters,
     get_pop_density_points,
     get_kriging_ci_at_point,
+    get_kriging_ci_batch,
     get_raster_overlay,
+    load_heatmap_points,
 )
 
 
@@ -111,7 +113,7 @@ def _kriging_rings(m, lat, lon, score):
         ).add_to(m)
 
 
-def _gauge_popup(name, atype, risk, rank, division="") -> str:
+def _gauge_popup(name, atype, risk, rank, division="", kriging_ci=None) -> str:
     """Rich HTML popup with semicircle gauge and stats."""
     color = _risk_color(risk)
     label = _risk_label(risk)
@@ -119,7 +121,7 @@ def _gauge_popup(name, atype, risk, rank, division="") -> str:
     risk_val = f"{risk:.3f}" if isinstance(risk, (int, float)) and risk > 0 else "N/A"
     rank_val = f"#{int(rank)}" if isinstance(rank, (int, float)) and rank > 0 else "—"
     pct = min(float(risk) * 100, 100) if isinstance(risk, (int, float)) else 0
-    kriging_ci = f"{get_kriging_ci_at_point(0, 0, risk):.3f}" if isinstance(risk, (int, float)) else "N/A"
+    ci_str = f"{kriging_ci:.3f}" if kriging_ci is not None else "N/A"
     cvi_class = "IV" if isinstance(risk, (int, float)) and risk > 0.75 else "III" if isinstance(risk, (int, float)) and risk > 0.55 else "II"
 
     gauge_svg = f"""
@@ -151,7 +153,7 @@ def _gauge_popup(name, atype, risk, rank, division="") -> str:
         </div>
 
         <div style="font-size:10px;color:#64748b;margin-top:4px;">
-            <span>Kriging CI: +/-{kriging_ci}</span> |
+            <span>Kriging CI: +/-{ci_str}</span> |
             <span>CVI: {cvi_class}</span>
         </div>
 
@@ -239,7 +241,6 @@ def render_map(infra: gpd.GeoDataFrame,
                     tooltip=tooltip,
                 ).add_to(m)
         else:
-            # No real data — show placeholder message
             folium.Marker(
                 location=center,
                 icon=folium.DivIcon(html='<div style="color:#a03cde;font-size:10px;">AlphaEarth: run pipeline</div>'),
@@ -247,7 +248,7 @@ def render_map(infra: gpd.GeoDataFrame,
 
     # --- Population density heatmap ---
     if layers.get("show_popdens", False):
-        pop_points = get_pop_density_points(center, radius_deg=0.3, n_points=200)
+        pop_points = get_pop_density_points(tuple(center), radius_deg=0.3, n_points=200)
         if pop_points:
             heat_data = [[lat, lon, w] for lat, lon, w in pop_points]
             HeatMap(
@@ -259,7 +260,7 @@ def render_map(infra: gpd.GeoDataFrame,
     # --- Raster overlays ---
     for raster_key, layer_key in [("dem", "show_dem"), ("slope", "show_slope"),
                                    ("hand", "show_hand"), ("flood_risk", "show_cvi")]:
-        if layers.get(layer_key, False) and raster_key not in ("hand",):  # hand uses kriging rings
+        if layers.get(layer_key, False) and raster_key not in ("hand",):
             overlay = get_raster_overlay(raster_key)
             if overlay:
                 import base64
@@ -281,6 +282,9 @@ def render_map(infra: gpd.GeoDataFrame,
             },
         )
 
+        # Pre-compute kriging CIs in batch
+        ci_coords = []
+        marker_rows = []
         for _, row in infra.iterrows():
             lat = row.get("lat", None)
             lon = row.get("lon", None)
@@ -290,11 +294,8 @@ def render_map(infra: gpd.GeoDataFrame,
 
             atype = row.get("asset_type", "other")
             risk = row.get("flood_risk", 0)
-            name = row.get("name", "unnamed")
-            rank = row.get("risk_rank", 0)
-            division = row.get("division", "")
 
-            # Layer filter: skip if asset type is toggled off
+            # Layer filter
             if atype == "hospital" and not layers.get("osm_hospitals", True):
                 continue
             if atype == "bridge" and not layers.get("osm_bridges", True):
@@ -304,10 +305,24 @@ def render_map(infra: gpd.GeoDataFrame,
             if atype in ("road", "railway") and not layers.get("osm_roads", True):
                 continue
 
+            ci_coords.append((lat, lon, float(risk) if isinstance(risk, (int, float)) else 0.5))
+            marker_rows.append((lat, lon, row))
+
+        # Batch kriging CI lookup
+        ci_values = get_kriging_ci_batch(tuple(ci_coords)) if ci_coords else []
+
+        for i, (lat, lon, row) in enumerate(marker_rows):
+            atype = row.get("asset_type", "other")
+            risk = row.get("flood_risk", 0)
+            name = row.get("name", "unnamed")
+            rank = row.get("risk_rank", 0)
+            division = row.get("division", "")
+
             type_color = TYPE_COLORS.get(atype, "#64748b")
             risk_radius = max(4, min(12, float(risk) * 15)) if isinstance(risk, (int, float)) and risk > 0 else 5
 
-            popup_html = _gauge_popup(name, atype, risk, rank, division)
+            popup_html = _gauge_popup(name, atype, risk, rank, division,
+                                      kriging_ci=ci_values[i] if i < len(ci_values) else None)
 
             folium.CircleMarker(
                 location=[lat, lon],
@@ -323,21 +338,25 @@ def render_map(infra: gpd.GeoDataFrame,
 
         marker_cluster.add_to(m)
 
-    # --- Risk heatmap ---
-    if grid_gdf is not None and "composite_risk" in grid_gdf.columns:
-        heat_data = []
-        for _, row in grid_gdf.iterrows():
-            c = row.geometry.centroid
-            risk_val = row.get("composite_risk", 0)
-            if risk_val > 0.1:
-                heat_data.append([c.y, c.x, risk_val])
-        if heat_data:
-            HeatMap(
-                heat_data, name="Flood Risk Heatmap",
-                min_opacity=0.25, radius=18, blur=12,
-                gradient={"0.2": "#0ea5e9", "0.4": "#22c55e",
-                          "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444"},
-            ).add_to(m)
+    # --- Risk heatmap (pre-computed or vectorized fallback) ---
+    heat_data = load_heatmap_points()
+    if not heat_data and grid_gdf is not None and "composite_risk" in grid_gdf.columns:
+        centroids = grid_gdf.geometry.centroid
+        risks = grid_gdf["composite_risk"].values
+        mask = risks > 0.1
+        if mask.any():
+            heat_data = list(zip(
+                centroids[mask].y.tolist(),
+                centroids[mask].x.tolist(),
+                risks[mask].tolist(),
+            ))
+    if heat_data:
+        HeatMap(
+            heat_data, name="Flood Risk Heatmap",
+            min_opacity=0.25, radius=18, blur=12,
+            gradient={"0.2": "#0ea5e9", "0.4": "#22c55e",
+                      "0.6": "#eab308", "0.8": "#f59e0b", "1.0": "#ef4444"},
+        ).add_to(m)
 
     # --- Admin boundaries ---
     if union_gdf is not None and len(union_gdf) > 0:
@@ -428,7 +447,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
 
     center = region_data.get("center", [23.68, 90.35])
     zoom   = region_data.get("zoom",   9)
-    assets = get_regional_assets(region_key, center, radius_deg=0.5)
+    assets = get_regional_assets(region_key, tuple(center), radius_deg=0.5)
 
     m = folium.Map(
         location=center,
@@ -444,7 +463,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
         "<style>.leaflet-control-attribution{display:none !important;}</style>"
     ))
 
-    # Kriging risk surface rings (from real kriging variance if available)
+    # Kriging risk surface rings
     if layers.get("show_hand", True) or layers.get("show_cvi", True):
         for asset in assets:
             _kriging_rings(m, asset[0], asset[1], asset[4])
@@ -453,7 +472,6 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     if layers.get("show_alphearth", False):
         ae_data = get_alphaearth_clusters()
         if ae_data and "features" in ae_data:
-            # Filter to region bbox
             for feat in ae_data["features"]:
                 coords = feat["geometry"]["coordinates"]
                 props = feat.get("properties", {})
@@ -472,7 +490,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
 
     # Population density heatmap
     if layers.get("show_popdens", False):
-        pop_points = get_pop_density_points(center, radius_deg=0.15, n_points=100)
+        pop_points = get_pop_density_points(tuple(center), radius_deg=0.15, n_points=100)
         if pop_points:
             heat_data = [[lat, lon, w] for lat, lon, w in pop_points]
             HeatMap(
@@ -481,8 +499,12 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
                 gradient={"0.2": "#fce7f3", "0.5": "#f472b6", "0.8": "#db2777", "1.0": "#9d174d"},
             ).add_to(m)
 
+    # Batch kriging CI for all assets
+    ci_coords = tuple((a[0], a[1], a[4]) for a in assets)
+    ci_values = get_kriging_ci_batch(ci_coords) if ci_coords else []
+
     # Asset markers
-    for lat, lon, name, atype, score in assets:
+    for idx, (lat, lon, name, atype, score) in enumerate(assets):
         show = True
         if atype == "hospital" and not layers.get("osm_hospitals", True):
             show = False
@@ -498,7 +520,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
 
         col = _risk_to_color(score)
         risk_lbl = _risk_label(score)
-        kriging_ci = get_kriging_ci_at_point(lat, lon, score)
+        kriging_ci = ci_values[idx] if idx < len(ci_values) else score * 0.12
         cvi_class = "IV" if score > 0.75 else "III" if score > 0.55 else "II"
 
         popup_html = f"""
@@ -508,7 +530,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
           <span style="color:#5a8ab0;">Type:</span> {atype.title()}<br>
           <span style="color:#5a8ab0;">GNN Risk:</span>
           <span style="color:{col};font-weight:700;">{score:.2f} — {risk_lbl}</span><br>
-          <span style="color:#5a8ab0;">Kriging CI:</span> +/-{kriging_ci}<br>
+          <span style="color:#5a8ab0;">Kriging CI:</span> +/-{kriging_ci:.3f}<br>
           <span style="color:#5a8ab0;">CVI class:</span> {cvi_class}
         </div>
         """

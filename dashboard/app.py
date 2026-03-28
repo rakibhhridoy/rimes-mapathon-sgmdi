@@ -38,6 +38,8 @@ from dashboard.data.constants import (
 from dashboard.data.loader import (
     get_regional_assets,
     get_emergency_shelters,
+    load_gdf_fast,
+    load_heatmap_points,
 )
 
 # ---------------------------------------------------------------------------
@@ -324,8 +326,8 @@ def main():
     cfg = load_config()
     output_dir = Path("data/output")
 
-    # ── Load pipeline data ───────────────────────────────────────
-    infra = load_gdf(str(output_dir / "risk_ranked_assets.geojson"))
+    # ── Load pipeline data (parquet cache > geojson fallback) ───
+    infra = load_gdf_fast("risk_ranked_assets")
     if len(infra) == 0:
         infra = load_gdf("data/raw/infrastructure_raw.gpkg")
         csv_data = load_csv(str(output_dir / "risk_ranked_assets.csv"))
@@ -334,9 +336,9 @@ def main():
                 if col in csv_data.columns:
                     infra[col] = csv_data[col].values[:len(infra)]
 
-    union_gdf = load_gdf(str(output_dir / "union_risk_summary.geojson"))
-    hotspot_gdf = load_gdf(str(output_dir / "hotspot_clusters.geojson"))
-    grid_gdf = load_gdf(str(output_dir / "risk_grid.geojson"))
+    union_gdf = load_gdf_fast("union_risk_summary")
+    hotspot_gdf = load_gdf_fast("hotspot_clusters")
+    grid_gdf = load_gdf_fast("risk_grid")
 
     has_pipeline_data = len(infra) > 0
 
@@ -609,7 +611,7 @@ def _render_flood_tab(layers):
 
     with panel_col:
         flood_assets = get_regional_assets(
-            flood_region, region_data.get("center"), radius_deg=0.5)
+            flood_region, tuple(region_data.get("center", [23.68, 90.35])), radius_deg=0.5)
         render_infrastructure_table(
             flood_assets,
             key_prefix=f"infra_{flood_region}",
@@ -720,7 +722,7 @@ def _render_landslide_tab(layers):
 
     with ls_panel_col:
         ls_assets = get_regional_assets(
-            "CHT Landslide", LANDSLIDE_DATA.get("center"), radius_deg=0.5)
+            "CHT Landslide", tuple(LANDSLIDE_DATA.get("center", [22.5, 92.1])), radius_deg=0.5)
         render_infrastructure_table(
             ls_assets,
             key_prefix="ls_infra",

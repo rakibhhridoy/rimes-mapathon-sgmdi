@@ -190,17 +190,15 @@ def render_sidebar(infra: gpd.GeoDataFrame,
         else:
             selected_divs = None
 
-        # Apply filters
-        filtered = infra.copy()
-        if "asset_type" in filtered.columns:
-            filtered = filtered[filtered["asset_type"].isin(selected_types)]
-        if "flood_risk" in filtered.columns:
-            filtered = filtered[
-                (filtered["flood_risk"] >= risk_min) &
-                (filtered["flood_risk"] <= risk_max)
-            ]
-        if selected_divs is not None and "division" in filtered.columns:
-            filtered = filtered[filtered["division"].isin(selected_divs)]
+        # Apply filters (no copy — chain boolean masks)
+        mask = pd.Series(True, index=infra.index)
+        if "asset_type" in infra.columns:
+            mask &= infra["asset_type"].isin(selected_types)
+        if "flood_risk" in infra.columns:
+            mask &= (infra["flood_risk"] >= risk_min) & (infra["flood_risk"] <= risk_max)
+        if selected_divs is not None and "division" in infra.columns:
+            mask &= infra["division"].isin(selected_divs)
+        filtered = infra[mask]
 
         # Stats
         st.markdown("---")
