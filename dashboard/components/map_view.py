@@ -555,7 +555,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
 
     # Base layers — same as pipeline map
     folium.TileLayer(
-        tiles="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
         attr=" ", name="Dark",
     ).add_to(m)
     folium.TileLayer("OpenStreetMap", name="OpenStreetMap", overlay=False, attr=" ").add_to(m)

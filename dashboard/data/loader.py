@@ -224,8 +224,10 @@ def get_regional_assets(region_key: str, center: tuple = None,
         except Exception as e:
             logger.warning(f"Could not load real assets for {region_key}: {e}")
 
-    region = DATA_SOURCES.get(region_key, {})
-    return region.get("mock_assets", [])
+    region = DATA_SOURCES.get(region_key)
+    if region is None and "landslide" in region_key.lower():
+        region = LANDSLIDE_DATA
+    return (region or {}).get("mock_assets", [])
 
 
 # ── Upazila risk ──────────────────────────────────────────────────────────────
