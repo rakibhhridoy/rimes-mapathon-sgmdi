@@ -265,6 +265,41 @@ st.markdown(f"""
         font-family: 'Inter', sans-serif;
     }}
 
+    /* Tab content fade-in */
+    [data-testid="stTabContent"] > div {{
+        animation: fadeIn 0.3s ease-out;
+    }}
+
+    /* Table row hover */
+    [data-testid="stDataFrame"] tbody tr:hover {{
+        background: rgba(0,212,255,0.04) !important;
+    }}
+
+    /* Expander hover glow */
+    [data-testid="stExpander"]:hover {{
+        border-color: rgba(0,212,255,0.25) !important;
+        box-shadow: 0 0 12px {GLOW};
+    }}
+
+    /* Loading skeleton shimmer */
+    .skeleton {{
+        background: linear-gradient(90deg, {BG2} 25%, #14202e 50%, {BG2} 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.8s ease-in-out infinite;
+        border-radius: 8px;
+    }}
+    .skeleton-strip {{
+        display: flex; gap: 12px; margin-bottom: 16px;
+    }}
+    .skeleton-card {{
+        flex: 1; min-width: 130px; height: 72px;
+        border-radius: 12px;
+    }}
+    .skeleton-map {{
+        width: 100%; height: 400px; border-radius: 10px;
+        margin-bottom: 16px;
+    }}
+
     @keyframes pulse {{
         0%, 100% {{ opacity: 1; }}
         50% {{ opacity: 0.4; }}
@@ -273,6 +308,16 @@ st.markdown(f"""
     @keyframes glowPulse {{
         0%, 100% {{ box-shadow: 0 0 8px rgba(0,212,255,0.08); }}
         50% {{ box-shadow: 0 0 16px rgba(0,212,255,0.18); }}
+    }}
+
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(4px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    @keyframes shimmer {{
+        0% {{ background-position: -200% 0; }}
+        100% {{ background-position: 200% 0; }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -532,6 +577,17 @@ def _render_minimal_sidebar():
         "forecast_days":  st.session_state.get("forecast_days", 3),
         "scenario":       st.session_state.get("scenario", "Current (2025)"),
     }
+
+
+def _render_skeleton():
+    """Show shimmer loading placeholders while data loads."""
+    st.markdown(
+        '<div class="skeleton-strip">'
+        + ''.join('<div class="skeleton skeleton-card"></div>' for _ in range(8))
+        + '</div>'
+        '<div class="skeleton skeleton-map"></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------

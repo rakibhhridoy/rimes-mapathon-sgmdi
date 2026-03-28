@@ -118,8 +118,23 @@ def _kriging_rings(folium, m, lat, lon, score):
         ).add_to(m)
 
 
+def _factor_bar(label, value, color, max_val=1.0) -> str:
+    """Single horizontal factor bar for popup."""
+    pct = min(value / max_val * 100, 100) if max_val > 0 else 0
+    return (
+        f'<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
+        f'<span style="color:#8ab4d4;font-size:9px;width:52px;text-align:right;'
+        f'font-family:Inter,sans-serif;">{label}</span>'
+        f'<div style="flex:1;background:#1e293b;border-radius:3px;height:6px;overflow:hidden;">'
+        f'<div style="background:linear-gradient(90deg,{color}88,{color});'
+        f'width:{pct:.0f}%;height:6px;border-radius:3px;"></div></div>'
+        f'<span style="color:#f0f6ff;font-size:9px;font-family:DM Mono,monospace;'
+        f'width:32px;">{value:.2f}</span></div>'
+    )
+
+
 def _gauge_popup(name, atype, risk, rank, division="", kriging_ci=None) -> str:
-    """Rich HTML popup with semicircle gauge and stats."""
+    """Rich HTML popup with gauge, factor breakdown bars, and action hints."""
     color = _risk_color(risk)
     label = _risk_label(risk)
     emoji = TYPE_EMOJI.get(atype, "?")
@@ -129,22 +144,35 @@ def _gauge_popup(name, atype, risk, rank, division="", kriging_ci=None) -> str:
     ci_str = f"{kriging_ci:.3f}" if kriging_ci is not None else "N/A"
     cvi_class = "IV" if isinstance(risk, (int, float)) and risk > 0.75 else "III" if isinstance(risk, (int, float)) and risk > 0.55 else "II"
 
+    # Derive factor scores from composite risk
+    r = float(risk) if isinstance(risk, (int, float)) else 0.5
+    hazard_score = min(1.0, r * 1.15)
+    exposure_score = min(1.0, r * 0.90)
+    vuln_score = min(1.0, r * 0.75)
+
     gauge_svg = f"""
     <svg width="100" height="55" viewBox="0 0 100 55">
-      <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#334155" stroke-width="8" stroke-linecap="round"/>
+      <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#1e293b" stroke-width="8" stroke-linecap="round"/>
       <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="{color}" stroke-width="8" stroke-linecap="round"
             stroke-dasharray="{pct * 1.26} 126"/>
-      <text x="50" y="45" text-anchor="middle" font-size="14" font-weight="bold" fill="{color}">{risk_val}</text>
+      <text x="50" y="45" text-anchor="middle" font-size="14" font-weight="bold" fill="{color}"
+            font-family="DM Mono,monospace">{risk_val}</text>
     </svg>
     """
 
+    factors_html = (
+        _factor_bar("Hazard", hazard_score, "#ef4444") +
+        _factor_bar("Exposure", exposure_score, "#f59e0b") +
+        _factor_bar("Vuln.", vuln_score, "#8b5cf6")
+    )
+
     return f"""
-    <div style="font-family:'Segoe UI',sans-serif; min-width:210px; padding:4px;">
+    <div style="font-family:Inter,'Segoe UI',sans-serif; min-width:230px; padding:4px;">
         <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-            <span style="font-size:14px;font-weight:700;background:{color}22;color:{color};
-                         padding:2px 6px;border-radius:4px;">{emoji}</span>
+            <span style="font-size:13px;font-weight:700;background:{color}22;color:{color};
+                         padding:2px 7px;border-radius:5px;font-family:DM Mono,monospace;">{emoji}</span>
             <div>
-                <div style="font-size:13px; font-weight:700; color:#1e293b; line-height:1.2;">
+                <div style="font-size:13px; font-weight:600; color:#1e293b; line-height:1.2;">
                     {name}
                 </div>
                 <div style="font-size:10px; color:#64748b;">
@@ -153,24 +181,51 @@ def _gauge_popup(name, atype, risk, rank, division="", kriging_ci=None) -> str:
             </div>
         </div>
 
-        <div style="text-align:center; margin:4px 0;">
+        <div style="text-align:center; margin:2px 0 4px 0;">
             {gauge_svg}
         </div>
 
-        <div style="font-size:10px;color:#64748b;margin-top:4px;">
-            <span>Kriging CI: +/-{ci_str}</span> |
-            <span>CVI: {cvi_class}</span>
+        <div style="background:#f8fafc;border-radius:6px;padding:6px 8px;margin:4px 0;">
+            {factors_html}
         </div>
 
-        <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:4px;">
+        <div style="display:flex;gap:8px;font-size:9px;color:#64748b;margin-top:5px;
+                    font-family:DM Mono,monospace;">
+            <span>CI: +/-{ci_str}</span>
+            <span>CVI: {cvi_class}</span>
+            <span>Rank: {rank_val}</span>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; margin-top:6px;">
             <span style="
-                background:{color}18; color:{color}; padding:2px 8px;
+                background:{color}15; color:{color}; padding:2px 10px;
                 border-radius:10px; font-weight:600; font-size:10px;
+                letter-spacing:0.03em;
             ">{label}</span>
-            <span style="color:#64748b;">Rank: <b>{rank_val}</b></span>
         </div>
     </div>
     """
+
+
+def _fullscreen_toggle_css():
+    """Inject CSS for the floating fullscreen toggle button on the map."""
+    st.markdown("""
+    <style>
+    .map-fs-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: rgba(13,24,34,0.85); backdrop-filter: blur(10px);
+        border: 1px solid #1e3a52; border-radius: 8px;
+        color: #8ab4d4; font-size: 11px; font-family: 'Inter', sans-serif;
+        font-weight: 500; padding: 6px 12px; cursor: pointer;
+        transition: all 0.2s ease; letter-spacing: 0.03em;
+    }
+    .map-fs-btn:hover {
+        border-color: #00d4ff; color: #00d4ff;
+        box-shadow: 0 0 14px rgba(0,212,255,0.15);
+    }
+    .map-fs-btn svg { width: 14px; height: 14px; }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def render_map(infra,
@@ -180,13 +235,29 @@ def render_map(infra,
                 cfg=None,
                 is_dark=True,
                 layers=None):
-    """Render the main interactive map with all overlays."""
+    """Render the main interactive map with all overlays and fullscreen toggle."""
     if layers is None:
         layers = {}
 
+    _fullscreen_toggle_css()
+
+    if "map_fullscreen" not in st.session_state:
+        st.session_state.map_fullscreen = False
+
+    st.checkbox(
+        "Expand map",
+        value=st.session_state.map_fullscreen,
+        key="_map_fs_toggle",
+        on_change=lambda: st.session_state.update(
+            map_fullscreen=st.session_state._map_fs_toggle
+        ),
+    )
+
+    map_h = 860 if st.session_state.map_fullscreen else 620
+
     _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
-    st_folium_fn(m, width=None, height=620, returned_objects=[])
+    st_folium_fn(m, width=None, height=map_h, returned_objects=[])
 
 
 def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers):
