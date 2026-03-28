@@ -4,18 +4,15 @@ and floating analytics overlay for the map panel.
 """
 
 import streamlit as st
-import geopandas as gpd
-import pandas as pd
-import plotly.express as px
-import numpy as np
 from dashboard.data.loader import get_confidence_metrics
 
 
-def render_sidebar(infra: gpd.GeoDataFrame,
-                    union_gdf: gpd.GeoDataFrame = None,
-                    grid_gdf: gpd.GeoDataFrame = None,
-                    is_dark: bool = True):
+def render_sidebar(infra,
+                    union_gdf=None,
+                    grid_gdf=None,
+                    is_dark=True):
     """Render sidebar with pipeline status, confidence, layers, and data filters."""
+    import pandas as pd
     accent = "#38bdf8"
     text2 = "#94a3b8" if is_dark else "#64748b"
 
@@ -238,10 +235,11 @@ def render_sidebar(infra: gpd.GeoDataFrame,
     return filtered, selected_types, risk_min, risk_max, layers
 
 
-def render_analytics_overlay(infra: gpd.GeoDataFrame,
-                              union_gdf: gpd.GeoDataFrame = None,
-                              is_dark: bool = True):
+def render_analytics_overlay(infra,
+                              union_gdf=None,
+                              is_dark=True):
     """Floating analytics panel next to the map."""
+    import plotly.express as px
     bg = "#1e293b" if is_dark else "#ffffff"
     border = "#334155" if is_dark else "#e2e8f0"
     text = "#e2e8f0" if is_dark else "#1e293b"

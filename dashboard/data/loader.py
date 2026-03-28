@@ -1,16 +1,14 @@
 """
 Central data loader — tries real pipeline outputs first, falls back to
-mock data from constants.py. Dashboard components call these functions
-so they never break regardless of pipeline state.
+mock data from constants.py. All heavy imports (geopandas, numpy, pandas,
+rasterio, matplotlib) are deferred to first use via _import_geo().
 """
 
 import json
 import logging
+from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-import geopandas as gpd
 import streamlit as st
 
 from dashboard.data.constants import (
@@ -29,11 +27,21 @@ RAW_DIR = Path("data/raw")
 CACHE_DIR = Path("data/cache")
 
 
+@lru_cache(maxsize=1)
+def _import_geo():
+    """Lazy import heavy geo libs on first actual data access."""
+    import numpy as np
+    import pandas as pd
+    import geopandas as gpd
+    return np, pd, gpd
+
+
 # ── Fast GeoDataFrame loader (parquet > geojson) ────────────────────────────
 
 @st.cache_data(ttl=600)
-def load_gdf_fast(name: str) -> gpd.GeoDataFrame:
+def load_gdf_fast(name: str):
     """Load GeoDataFrame from parquet cache, falling back to GeoJSON."""
+    _, _, gpd = _import_geo()
     parquet_path = CACHE_DIR / f"{name}.parquet"
     geojson_path = OUTPUT_DIR / f"{name}.geojson"
 
@@ -85,10 +93,8 @@ def load_pipeline_metadata() -> dict | None:
 
 @st.cache_data(ttl=300)
 def get_confidence_metrics() -> dict:
-    """
-    Return real confidence metrics from pipeline metadata,
-    or computed fallback values from available outputs.
-    """
+    """Return real confidence metrics from pipeline metadata or fallback."""
+    np, _, _ = _import_geo()
     meta = load_pipeline_metadata()
     if meta and meta.get("kriging_variance_mean") is not None:
         return {
@@ -99,7 +105,6 @@ def get_confidence_metrics() -> dict:
             "source": "pipeline_metadata",
         }
 
-    # Fallback: compute from raw outputs
     result = {
         "kriging_var": 0.043,
         "gnn_ci_width": 0.118,
@@ -146,10 +151,8 @@ def _load_kriging_raster():
 
 def get_kriging_ci_at_point(lat: float, lon: float,
                             fallback_score: float = 0.5) -> float:
-    """
-    Sample kriging variance at a point. Returns CI width.
-    Falls back to score * 0.12 approximation.
-    """
+    """Sample kriging variance at a point. Returns CI width."""
+    np, _, _ = _import_geo()
     raster = _load_kriging_raster()
     if raster is not None:
         try:
@@ -162,15 +165,13 @@ def get_kriging_ci_at_point(lat: float, lon: float,
                     return round(float(2 * 1.96 * np.sqrt(val)), 3)
         except Exception:
             pass
-
     return round(fallback_score * 0.12, 3)
 
-
-# ── Batch kriging CI (for popups) ────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
 def get_kriging_ci_batch(coords_and_scores: tuple) -> list[float]:
     """Compute kriging CI for a batch of (lat, lon, score) tuples at once."""
+    np, _, _ = _import_geo()
     raster = _load_kriging_raster()
     results = []
     for lat, lon, score in coords_and_scores:
@@ -195,12 +196,7 @@ def get_kriging_ci_batch(coords_and_scores: tuple) -> list[float]:
 @st.cache_data(ttl=300)
 def get_regional_assets(region_key: str, center: tuple = None,
                         radius_deg: float = 0.5) -> list[tuple]:
-    """
-    Get infrastructure assets near a region center.
-    Tries real risk_ranked_assets.geojson first, falls back to mock_assets.
-
-    Returns list of (lat, lon, name, asset_type, risk_score) tuples.
-    """
+    """Get infrastructure assets near a region center."""
     if center is not None:
         try:
             gdf = load_gdf_fast("risk_ranked_assets")
@@ -228,7 +224,6 @@ def get_regional_assets(region_key: str, center: tuple = None,
         except Exception as e:
             logger.warning(f"Could not load real assets for {region_key}: {e}")
 
-    # Fallback to mock
     region = DATA_SOURCES.get(region_key, {})
     return region.get("mock_assets", [])
 
@@ -237,10 +232,8 @@ def get_regional_assets(region_key: str, center: tuple = None,
 
 @st.cache_data(ttl=300)
 def get_upazila_risk(region_key: str) -> list[dict]:
-    """
-    Get upazila-level risk data.
-    Tries real upazila_risk_summary.csv first, falls back to MOCK_UPAZILA_RISK.
-    """
+    """Get upazila-level risk data."""
+    _, pd, _ = _import_geo()
     csv_path = OUTPUT_DIR / "upazila_risk_summary.csv"
     if csv_path.exists():
         try:
@@ -280,10 +273,7 @@ def _risk_to_class(risk: float) -> int:
 
 @st.cache_data(ttl=300)
 def get_landslide_upazila() -> list[dict]:
-    """
-    Get landslide upazila data.
-    Tries real landslide_upazila.json first, falls back to MOCK_LANDSLIDE_UPAZILA.
-    """
+    """Get landslide upazila data."""
     json_path = OUTPUT_DIR / "landslide_upazila.json"
     if json_path.exists():
         try:
@@ -309,9 +299,8 @@ def get_landslide_upazila() -> list[dict]:
 
 @st.cache_data(ttl=300)
 def get_emergency_shelters() -> list[dict]:
-    """
-    Get emergency shelter data from real infrastructure or fallback.
-    """
+    """Get emergency shelter data from real infrastructure or fallback."""
+    np, _, gpd = _import_geo()
     infra_path = RAW_DIR / "infrastructure_raw.gpkg"
     if infra_path.exists():
         try:
@@ -349,11 +338,8 @@ def get_emergency_shelters() -> list[dict]:
 @st.cache_data(ttl=600)
 def get_pop_density_points(center: tuple, radius_deg: float = 0.3,
                            n_points: int = 200) -> list[tuple]:
-    """
-    Sample real population density from WorldPop raster.
-    Returns list of (lat, lon, density) tuples for heatmap.
-    Falls back to random distribution.
-    """
+    """Sample real population density from WorldPop raster."""
+    np, _, _ = _import_geo()
     pop_path = RAW_DIR / "worldpop_popdens.tif"
     if pop_path.exists():
         try:
@@ -380,7 +366,6 @@ def get_pop_density_points(center: tuple, radius_deg: float = 0.3,
         except Exception as e:
             logger.warning(f"Could not sample WorldPop: {e}")
 
-    # Fallback: random
     rng = np.random.default_rng(42)
     lat_c, lon_c = center
     return [
@@ -395,10 +380,7 @@ def get_pop_density_points(center: tuple, radius_deg: float = 0.3,
 
 @st.cache_data(ttl=600)
 def get_alphaearth_clusters() -> dict | None:
-    """
-    Load AlphaEarth cluster GeoJSON if available.
-    Returns parsed GeoJSON dict or None.
-    """
+    """Load AlphaEarth cluster GeoJSON if available."""
     path = OUTPUT_DIR / "alphaearth_clusters.geojson"
     if path.exists():
         try:
@@ -413,17 +395,13 @@ def get_alphaearth_clusters() -> dict | None:
 
 @st.cache_data(ttl=600)
 def get_raster_overlay(raster_name: str, _bounds: tuple = None) -> dict | None:
-    """
-    Read a GeoTIFF raster and return data for folium ImageOverlay.
-    Checks pre-rendered cache first for instant loading.
-
-    Returns dict with 'image_base64', 'bounds', 'name' or None.
-    """
-    # Try pre-rendered cache first (instant)
+    """Read a GeoTIFF raster and return data for folium ImageOverlay.
+    Checks pre-rendered cache first for instant loading."""
     cached = load_cached_raster_overlay(raster_name)
     if cached is not None:
         return cached
 
+    np, _, _ = _import_geo()
     raster_map = {
         "dem": PROCESSED_DIR / "dem_reprojected.tif",
         "slope": PROCESSED_DIR / "slope.tif",
@@ -448,12 +426,10 @@ def get_raster_overlay(raster_name: str, _bounds: tuple = None) -> dict | None:
             data = src.read(1).astype(np.float32)
             raster_bounds = src.bounds
 
-            # Handle nodata
             nodata = src.nodata
             if nodata is not None:
                 data[data == nodata] = np.nan
 
-            # Normalize to [0, 1]
             valid = data[~np.isnan(data)]
             if len(valid) == 0:
                 return None
@@ -462,13 +438,9 @@ def get_raster_overlay(raster_name: str, _bounds: tuple = None) -> dict | None:
                 return None
             norm = np.clip((data - vmin) / (vmax - vmin), 0, 1)
 
-            # Colormap
             cmap_name = {
-                "dem": "terrain",
-                "slope": "YlOrRd",
-                "hand": "Blues_r",
-                "flood_risk": "RdYlGn_r",
-                "kriging_variance": "Purples",
+                "dem": "terrain", "slope": "YlOrRd", "hand": "Blues_r",
+                "flood_risk": "RdYlGn_r", "kriging_variance": "Purples",
                 "landslide": "OrRd",
             }.get(raster_name, "viridis")
 

@@ -1,11 +1,11 @@
 # dashboard/components/cofactors.py
 import streamlit as st
 from dashboard.data.constants import AHP_FLOOD_WEIGHTS, LANDSLIDE_DATA
-import plotly.graph_objects as go
 
 
 def render_flood_cofactors(region_key: str):
     """Expandable AHP weight matrix and conditioning factors for flood risk."""
+    import plotly.graph_objects as go
     with st.expander("Conditioning Factors & Model Weights", expanded=False):
         col1, col2 = st.columns([1, 1])
 
@@ -112,6 +112,7 @@ def render_flood_cofactors(region_key: str):
 
 
 def render_landslide_cofactors():
+    import plotly.graph_objects as go
     """Expandable 15 conditioning factors for CHT landslide model."""
     factors = LANDSLIDE_DATA["conditioning_factors"]
 

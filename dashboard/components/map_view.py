@@ -8,12 +8,17 @@ Interactive Folium map with:
   - AlphaEarth cluster overlay + population density (from Fermium-HazMapper)
 """
 
-import folium
-import geopandas as gpd
-import numpy as np
 import streamlit as st
-from folium.plugins import MarkerCluster, HeatMap
-from streamlit_folium import st_folium
+
+
+def _get_map_imports():
+    """Lazy import folium and related heavy libs."""
+    import folium
+    from folium.plugins import MarkerCluster, HeatMap
+    from streamlit_folium import st_folium
+    return folium, MarkerCluster, HeatMap, st_folium
+
+
 from dashboard.data.loader import (
     get_alphaearth_clusters,
     get_pop_density_points,
@@ -95,7 +100,7 @@ def _risk_label(score) -> str:
     return "LOW"
 
 
-def _kriging_rings(m, lat, lon, score):
+def _kriging_rings(folium, m, lat, lon, score):
     """Draw concentric risk rings to simulate Kriging interpolation surface."""
     for r, alpha, offset in [
         (5000, 0.08, 0.0),
@@ -168,24 +173,25 @@ def _gauge_popup(name, atype, risk, rank, division="", kriging_ci=None) -> str:
     """
 
 
-def render_map(infra: gpd.GeoDataFrame,
-                grid_gdf: gpd.GeoDataFrame = None,
-                union_gdf: gpd.GeoDataFrame = None,
-                hotspot_gdf: gpd.GeoDataFrame = None,
-                cfg: dict = None,
-                is_dark: bool = True,
-                layers: dict = None):
+def render_map(infra,
+                grid_gdf=None,
+                union_gdf=None,
+                hotspot_gdf=None,
+                cfg=None,
+                is_dark=True,
+                layers=None):
     """Render the main interactive map with all overlays."""
     if layers is None:
         layers = {}
 
-    # Build map HTML cached, display via st_folium
+    _, _, _, st_folium_fn = _get_map_imports()
     m = _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers)
-    st_folium(m, width=None, height=620, returned_objects=[])
+    st_folium_fn(m, width=None, height=620, returned_objects=[])
 
 
 def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layers):
     """Build the folium Map object with all layers."""
+    folium, MarkerCluster, HeatMap, _ = _get_map_imports()
 
     center = cfg.get("dashboard", {}).get("map_center", [25.5, 89.0]) if cfg else [25.5, 89.0]
     zoom = cfg.get("dashboard", {}).get("map_zoom", 8) if cfg else 8
@@ -222,7 +228,7 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
                 lat = row.get("lat", None)
                 lon = row.get("lon", None)
                 if lat is not None and lon is not None:
-                    _kriging_rings(m, lat, lon, row["flood_risk"])
+                    _kriging_rings(folium, m, lat, lon, row["flood_risk"])
 
     # --- AlphaEarth cluster overlay ---
     if layers.get("show_alphearth", False):
@@ -458,6 +464,7 @@ def _build_main_map(infra, grid_gdf, union_gdf, hotspot_gdf, cfg, is_dark, layer
 
 def render_region_map(region_key: str, region_data: dict, layers: dict, map_key: str = "region_map"):
     """Render an interactive Folium map for a specific region using real data with fallback."""
+    folium, MarkerCluster, HeatMap, st_folium_fn = _get_map_imports()
     from dashboard.data.loader import get_regional_assets
 
     center = region_data.get("center", [23.68, 90.35])
@@ -481,7 +488,7 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     # Kriging risk surface rings
     if layers.get("show_hand", True) or layers.get("show_cvi", True):
         for asset in assets:
-            _kriging_rings(m, asset[0], asset[1], asset[4])
+            _kriging_rings(folium, m, asset[0], asset[1], asset[4])
 
     # AlphaEarth cluster overlay
     if layers.get("show_alphearth", False):
@@ -576,4 +583,4 @@ def render_region_map(region_key: str, region_data: dict, layers: dict, map_key:
     """
     m.get_root().html.add_child(folium.Element(risk_legend))
 
-    return st_folium(m, width="100%", height=480, key=map_key, returned_objects=[])
+    return st_folium_fn(m, width="100%", height=480, key=map_key, returned_objects=[])

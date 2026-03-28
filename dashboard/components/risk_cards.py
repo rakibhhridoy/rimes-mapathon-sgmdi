@@ -3,7 +3,6 @@ Union-level risk cards for the Unions tab.
 """
 
 import streamlit as st
-import geopandas as gpd
 
 
 def _risk_color(score: float) -> str:
@@ -26,7 +25,7 @@ def _risk_label(score: float) -> str:
     return "LOW"
 
 
-def render_risk_cards(union_gdf: gpd.GeoDataFrame, is_dark: bool = True,
+def render_risk_cards(union_gdf, is_dark: bool = True,
                        n_display: int = 12):
     """Render union risk cards in a grid layout."""
     bg = "#1e293b" if is_dark else "#ffffff"

@@ -1,7 +1,5 @@
 # dashboard/components/risk_panels.py
 import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
 from dashboard.data.constants import (
     VULNERABILITY_CLASSES,
     LITERATURE,
@@ -96,6 +94,7 @@ def render_metric_row(region_key: str = None, landslide: bool = False):
 
 def render_infrastructure_table(assets: list, key_prefix: str = "infra"):
     """Sortable infrastructure exposure table."""
+    import pandas as pd
     st.markdown(
         "<span style='color:#3cb8de;font-size:11px;font-weight:700;"
         "letter-spacing:0.1em;'>INFRASTRUCTURE EXPOSURE — GNN RISK SCORES</span>",
@@ -151,6 +150,7 @@ def render_infrastructure_table(assets: list, key_prefix: str = "infra"):
 
 
 def render_vulnerability_chart(region_key: str):
+    import plotly.graph_objects as go
     """CVI bar chart by upazila."""
     data = get_upazila_risk(region_key)
     if not data:
@@ -225,6 +225,7 @@ def render_vulnerability_chart(region_key: str):
 
 
 def render_agri_risk(region_key: str):
+    import plotly.graph_objects as go
     """Agricultural risk monitor panel."""
     st.markdown(
         "<span style='color:#3cdea0;font-size:11px;font-weight:700;"
@@ -292,6 +293,7 @@ def render_agri_risk(region_key: str):
 
 
 def render_landslide_upazila():
+    import pandas as pd
     """Landslide upazila risk table."""
     st.markdown(
         "<span style='color:#de3c78;font-size:11px;font-weight:700;"
