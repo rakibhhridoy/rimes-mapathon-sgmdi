@@ -20,3 +20,8 @@ data/output/
 dist/
 build/
 data.zip
+
+# Generated docs
+*.pdf
+*.svg
+*.md

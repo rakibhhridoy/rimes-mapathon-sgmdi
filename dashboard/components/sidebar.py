@@ -17,6 +17,13 @@ def render_sidebar(infra,
     text2 = "#94a3b8" if is_dark else "#64748b"
 
     with st.sidebar:
+        # ── FERMIUM LOGO ────────────────────────────────────────────
+        import os
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "fermium.png")
+        if os.path.exists(logo_path):
+            st.image(logo_path, width=120)
+            st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
+
         # ── PIPELINE STATUS ──────────────────────────────────────────
         st.markdown(
             """
